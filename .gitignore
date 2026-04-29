@@ -5,3 +5,6 @@ coverage/
 *.log
 .agent/state.json
 .agent/sync.lock
+.agents/state.json
+.agents/sync.lock
+.agents/watch.json

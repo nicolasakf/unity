@@ -57,6 +57,10 @@ async function syncScopeUnlocked(scope: Scope, options: SyncOptions = {}): Promi
 
   for (const target of enabledTargets(config, scope)) {
     const targetPath = resolveTargetPath(pathForScope(target, scope), scope, cwd);
+    if (samePath(targetPath, source)) {
+      messages.push({ level: "info", message: `Skipped ${target.id}: target is the Unity source` });
+      continue;
+    }
     if (!dryRun) await fs.mkdir(targetPath, { recursive: true });
     const targetState = state.targets[target.id]?.targetPath === targetPath
       ? state.targets[target.id]
@@ -159,6 +163,11 @@ async function pruneTargetUnlocked(
     messages
   };
 
+  if (samePath(targetPath, sourceDir(scope, cwd))) {
+    messages.push({ level: "info", message: `Skipped ${targetId}: target is the Unity source` });
+    return result;
+  }
+
   for (const [skillName, managed] of Object.entries(targetState.skills)) {
     const removed = await removeManagedSkill({
       targetId,
@@ -197,6 +206,46 @@ export async function importSkills(from: string, scope: Scope, cwdOrOptions: str
   return importSkillsUnlocked(from, scope, options);
 }
 
+export async function pullScope(scope: Scope, options: ImportOptions = {}): Promise<SyncResult> {
+  const cwd = options.cwd ?? process.cwd();
+  if (!options.dryRun) {
+    await ensureScope(scope, cwd);
+    return withScopeLock(scope, cwd, () => pullScopeUnlocked(scope, options));
+  }
+
+  return pullScopeUnlocked(scope, options);
+}
+
+async function pullScopeUnlocked(scope: Scope, options: ImportOptions = {}): Promise<SyncResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const config = await loadConfig(scope, cwd);
+  const result: SyncResult = { scope, copied: 0, removed: 0, skipped: 0, errors: 0, messages: [] };
+
+  for (const target of enabledTargets(config, scope)) {
+    const sourcePath = resolveTargetPath(pathForScope(target, scope), scope, cwd);
+    if (samePath(sourcePath, sourceDir(scope, cwd))) {
+      result.messages.push({ level: "info", message: `Skipped ${target.id}: target is the Unity source` });
+      continue;
+    }
+    if (!(await pathExists(sourcePath))) {
+      result.skipped += 1;
+      result.messages.push({ level: "info", message: `Skipped ${target.id}: target path does not exist (${sourcePath})` });
+      continue;
+    }
+
+    const pulled = await importSkillsUnlocked(target.id, scope, options);
+    result.copied += pulled.copied;
+    result.removed += pulled.removed;
+    result.skipped += pulled.skipped;
+    result.errors += pulled.errors;
+    for (const message of pulled.messages) {
+      result.messages.push({ ...message, message: `${target.id}: ${message.message}` });
+    }
+  }
+
+  return result;
+}
+
 async function importSkillsUnlocked(from: string, scope: Scope, options: ImportOptions = {}): Promise<SyncResult> {
   const cwd = options.cwd ?? process.cwd();
   const fixNames = options.fixNames ?? false;
@@ -208,6 +257,11 @@ async function importSkillsUnlocked(from: string, scope: Scope, options: ImportO
   const destination = sourceDir(scope, cwd);
   const messages: UnityMessage[] = [];
   const result: SyncResult = { scope, copied: 0, removed: 0, skipped: 0, errors: 0, messages };
+
+  if (samePath(sourcePath, destination)) {
+    messages.push({ level: "info", message: `Skipped ${from}: import source is the Unity source` });
+    return result;
+  }
 
   if (!(await pathExists(sourcePath))) {
     result.errors += 1;
@@ -270,6 +324,10 @@ async function importSkillsUnlocked(from: string, scope: Scope, options: ImportO
 
 function pathForScope(target: TargetConfig, scope: Scope): string {
   return scope === "user" ? target.userPath : target.projectPath;
+}
+
+function samePath(left: string, right: string): boolean {
+  return path.resolve(left) === path.resolve(right);
 }
 
 async function syncSkill(input: {

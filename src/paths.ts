@@ -25,7 +25,7 @@ export function findProjectRoot(cwd = process.cwd()): string {
 }
 
 export function scopeBaseDir(scope: Scope, cwd = process.cwd()): string {
-  return scope === "user" ? path.join(homeDir(), ".agent") : path.join(findProjectRoot(cwd), ".agent");
+  return scope === "user" ? path.join(homeDir(), ".agents") : path.join(findProjectRoot(cwd), ".agents");
 }
 
 export function sourceDir(scope: Scope, cwd = process.cwd()): string {
@@ -42,6 +42,10 @@ export function statePath(scope: Scope, cwd = process.cwd()): string {
 
 export function lockPath(scope: Scope, cwd = process.cwd()): string {
   return path.join(scopeBaseDir(scope, cwd), "sync.lock");
+}
+
+export function watchStatePath(cwd = process.cwd()): string {
+  return path.join(scopeBaseDir("user", cwd), "watch.json");
 }
 
 export function resolveTargetPath(input: string, scope: Scope, cwd = process.cwd()): string {

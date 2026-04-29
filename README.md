@@ -1,8 +1,6 @@
 # Unity
 
-Unity keeps Agent Skills in one source-of-truth directory and mirrors them into the skill folders used by coding agents such as Codex, Claude Code, Cursor, and OpenCode.
-
-The npm package is scoped as `@agent-skills/unity` because the unscoped `unity` package name is already taken. The executable is still `unity`.
+Unity keeps Agent Skills in one source-of-truth directory and mirrors them into the skill folders used by coding agents such as Codex, Claude Code, Cursor, OpenCode, etc.
 
 ## Install
 
@@ -29,13 +27,13 @@ Unity has two source directories:
 
 | Scope | Source of truth |
 | --- | --- |
-| User | `~/.agent/skills` |
-| Project | `<repo>/.agent/skills` |
+| User | `~/.agents/skills` |
+| Project | `<repo>/.agents/skills` |
 
 Each skill is a directory that contains `SKILL.md`:
 
 ```text
-~/.agent/skills/
+~/.agents/skills/
 └── code-review/
     └── SKILL.md
 ```
@@ -59,6 +57,8 @@ Initialize both user and project scopes:
 unity init --scope all
 ```
 
+`init` also creates a user-level `unity-skill` from this README and pushes it to enabled user targets, so coding agents can learn how Unity works.
+
 Import existing skills from an agent directory:
 
 ```bash
@@ -66,22 +66,61 @@ unity import --from claude --scope user
 unity import --from .cursor/skills --scope project
 ```
 
-Sync once:
+Pull new skills from all enabled agent directories into Unity:
 
 ```bash
-unity sync --scope all
+unity pull --scope all
 ```
 
-Preview a sync without writing target directories or state:
+Push Unity skills out to enabled agent directories:
 
 ```bash
-unity sync --scope all --dry-run
+unity push --scope all
 ```
 
-Run a foreground watcher:
+`unity sync` is kept as an alias for the push direction.
+
+Preview a push without writing target directories or state:
 
 ```bash
-unity watch --scope all
+unity push --scope all --dry-run
+```
+
+Register projects for the global watcher:
+
+```bash
+unity projects add ~/path/to/repo
+unity projects list
+```
+
+Run one global background watcher for user scope and all registered projects:
+
+```bash
+unity watch --pull
+```
+
+Unity keeps a single watcher registration at `~/.agents/watch.json`. Starting `unity watch` again replaces any already-running Unity watcher, so changing flags is as simple as running the new command:
+
+```bash
+unity watch --scope project --pull
+```
+
+Check the registered watcher:
+
+```bash
+unity watch-status
+```
+
+For a one-off watcher in the current repository only:
+
+```bash
+unity watch --scope project --pull
+```
+
+Keep the watcher attached to the current terminal:
+
+```bash
+unity watch --pull --foreground
 ```
 
 ## Built-in targets
@@ -93,13 +132,15 @@ unity watch --scope all
 | Cursor | `~/.cursor/skills` | `.cursor/skills` |
 | OpenCode | `~/.config/opencode/skills` | `.opencode/skills` |
 
-Cursor paths are included from the project requirements. Codex uses `.agents/skills` and `~/.agents/skills` according to current Codex docs.
+Cursor paths are included from the project requirements. Codex uses the Unity source directory directly: `.agents/skills` and `~/.agents/skills`.
 
 ## Safety model
 
 Unity mirrors by copying directories, not by creating symlinks.
 
-Unity tracks every file it writes in `.agent/state.json` or `~/.agent/state.json`. On future syncs it only overwrites or removes files when the target still matches Unity's manifest.
+Unity's push direction writes from `.agents/skills` into enabled agent targets. Codex already reads that source path, so Unity skips Codex as a copy target. The pull direction imports new skills from targets into `.agents/skills`; it skips source skills that already exist unless you use the explicit import workflow to handle a specific target.
+
+Unity tracks every file it writes in `.agents/state.json` or `~/.agents/state.json`. On future syncs it only overwrites or removes files when the target still matches Unity's manifest.
 
 If a target skill exists but Unity did not create it, sync skips it and reports a warning. Use `--force` to overwrite:
 
@@ -139,6 +180,21 @@ unity targets add my-agent \
   --project-path .my-agent/skills
 ```
 
+## Project watcher registry
+
+`unity watch` defaults to a global watcher. It watches the user source plus every project registered in `~/.agents/config.json`.
+
+```bash
+unity projects add .
+unity projects remove .
+unity projects list
+unity watch --pull
+```
+
+The watcher also watches the user config file, so `unity projects add <path>` can add a project to an already-running global watcher.
+
+Use `--scope user`, `--scope project`, or `--scope all` when you want an old-style scoped watcher for one shell session instead of the global registry.
+
 ## Status and diagnostics
 
 ```bash
@@ -160,7 +216,7 @@ Some existing agent skills have a folder name that does not match the `name:` fi
 unity import --from cursor --scope user --fix-names
 ```
 
-For a skill in `~/.cursor/skills/create-skill-local` with `name: create-skill`, this imports the skill into `~/.agent/skills/create-skill-local` and rewrites the copied `SKILL.md` to `name: create-skill-local`.
+For a skill in `~/.cursor/skills/create-skill-local` with `name: create-skill`, this imports the skill into `~/.agents/skills/create-skill-local` and rewrites the copied `SKILL.md` to `name: create-skill-local`.
 
 Preview imports first with:
 

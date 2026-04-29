@@ -1,13 +1,14 @@
 import fs from "node:fs/promises";
 import { defaultConfigTargets } from "./agents.js";
-import { configPath, sourceDir } from "./paths.js";
+import { configPath, expandPath, findProjectRoot, sourceDir } from "./paths.js";
 import type { Scope, TargetConfig, UnityConfig } from "./types.js";
 import { readJsonFile, writeJsonFile } from "./json.js";
 
 export function defaultConfig(): UnityConfig {
   return {
     version: 1,
-    targets: defaultConfigTargets()
+    targets: defaultConfigTargets(),
+    projects: []
   };
 }
 
@@ -58,9 +59,42 @@ export function normalizeConfig(config: UnityConfig): UnityConfig {
     };
   }
 
-  return { version: 1, targets };
+  return {
+    version: 1,
+    targets,
+    projects: normalizeProjects(config.projects)
+  };
 }
 
 export function enabledTargets(config: UnityConfig, scope: Scope): TargetConfig[] {
   return Object.values(config.targets).filter((target) => target.enabled[scope]);
+}
+
+export async function listRegisteredProjects(cwd = process.cwd()): Promise<string[]> {
+  const config = await loadConfig("user", cwd);
+  return config.projects;
+}
+
+export async function addRegisteredProject(input = ".", cwd = process.cwd()): Promise<string> {
+  await ensureScope("user", cwd);
+  const config = await loadConfig("user", cwd);
+  const projectRoot = findProjectRoot(expandPath(input, cwd));
+  config.projects = normalizeProjects([...config.projects, projectRoot]);
+  await saveConfig("user", config, cwd);
+  await ensureScope("project", projectRoot);
+  return projectRoot;
+}
+
+export async function removeRegisteredProject(input = ".", cwd = process.cwd()): Promise<string | undefined> {
+  await ensureScope("user", cwd);
+  const config = await loadConfig("user", cwd);
+  const projectRoot = findProjectRoot(expandPath(input, cwd));
+  const before = config.projects.length;
+  config.projects = config.projects.filter((project) => project !== projectRoot);
+  await saveConfig("user", config, cwd);
+  return config.projects.length === before ? undefined : projectRoot;
+}
+
+function normalizeProjects(projects: string[] | undefined): string[] {
+  return [...new Set(projects ?? [])].sort();
 }

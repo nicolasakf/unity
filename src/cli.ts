@@ -1,12 +1,15 @@
 import fs from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { Command, InvalidArgumentError } from "commander";
-import { ensureScope, loadConfig, saveConfig } from "./config.js";
+import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, removeRegisteredProject, saveConfig } from "./config.js";
 import { expandScopes, resolveTargetPath, sourceDir } from "./paths.js";
 import { getStatus } from "./status.js";
-import { importSkills, pruneTarget, syncScope } from "./sync.js";
+import { importSkills, pruneTarget, pullScope, syncScope } from "./sync.js";
 import type { Scope, ScopeInput, SyncResult, TargetConfig, UnityMessage } from "./types.js";
-import { watchScopes } from "./watch.js";
+import { watchGlobal, watchScopes } from "./watch.js";
 import { listValidSkills } from "./skills.js";
+import { ensureUnitySkill } from "./unity-skill.js";
+import { claimWatcher, getWatcherState, releaseWatcher, stopExistingWatcher } from "./watch-state.js";
 
 const program = new Command();
 
@@ -24,6 +27,9 @@ program
       await ensureScope(scope);
       log({ level: "info", message: `Initialized ${scope} scope at ${sourceDir(scope)}` });
     }
+    const skillState = await ensureUnitySkill();
+    log({ level: "info", message: `${skillState === "created" ? "Created" : "Found"} user unity-skill at ${sourceDir("user")}/unity-skill` });
+    printResult(await syncScope("user"));
   });
 
 program
@@ -33,19 +39,85 @@ program
   .option("--force", "overwrite conflicting target skills", false)
   .option("--dry-run", "preview changes without writing target directories or state", false)
   .action(async (options: { scope: ScopeInput; force: boolean; dryRun: boolean }) => {
+    await pushScopes(options);
+  });
+
+program
+  .command("push")
+  .description("Push Unity source skills into enabled target directories.")
+  .option("--scope <scope>", "user, project, or all", parseScope, "all")
+  .option("--force", "overwrite conflicting target skills", false)
+  .option("--dry-run", "preview changes without writing target directories or state", false)
+  .action(async (options: { scope: ScopeInput; force: boolean; dryRun: boolean }) => {
+    await pushScopes(options);
+  });
+
+program
+  .command("pull")
+  .description("Pull new skills from enabled target directories into the Unity source.")
+  .option("--scope <scope>", "user, project, or all", parseScope, "all")
+  .option("--fix-names", "pull folder/name mismatches by rewriting copied SKILL.md names to match folders", false)
+  .option("--dry-run", "preview pulls without writing Unity source files", false)
+  .action(async (options: { scope: ScopeInput; fixNames: boolean; dryRun: boolean }) => {
     for (const scope of expandScopes(options.scope)) {
-      printResult(await syncScope(scope, { force: options.force, dryRun: options.dryRun }), options.dryRun);
+      printResult(
+        await pullScope(scope, {
+          fixNames: options.fixNames,
+          dryRun: options.dryRun
+        }),
+        options.dryRun
+      );
     }
   });
 
 program
   .command("watch")
-  .description("Run a foreground watcher that syncs after source skill changes.")
-  .option("--scope <scope>", "user, project, or all", parseScope, "all")
-  .action(async (options: { scope: ScopeInput }) => {
-    const scopes = expandScopes(options.scope);
-    for (const scope of scopes) await ensureScope(scope);
-    await watchScopes(scopes, process.cwd(), log);
+  .description("Run a background watcher that syncs after skill changes.")
+  .option("--scope <scope>", "global, user, project, or all", parseWatchScope, "global")
+  .option("--pull", "also watch enabled target directories and pull new target skills before syncing", false)
+  .option("--fix-names", "when used with --pull, repair folder/name mismatches in pulled skills", false)
+  .option("--foreground", "run watcher in the current terminal", false)
+  .action(async (options: { scope: WatchScopeInput; pull: boolean; fixNames: boolean; foreground: boolean }) => {
+    if (options.foreground) {
+      await runWatcher(options);
+      return;
+    }
+
+    await stopExistingWatcher();
+    const child = spawn(process.execPath, [process.argv[1], "watch-run", ...watchArgs(options)], {
+      cwd: process.cwd(),
+      detached: true,
+      stdio: "ignore",
+      env: process.env
+    });
+    child.unref();
+    await waitForBackgroundWatcher(child.pid);
+    console.log(`Started Unity watcher in background (pid ${child.pid}).`);
+  });
+
+program
+  .command("watch-run", { hidden: true })
+  .description("Internal foreground watcher process.")
+  .option("--scope <scope>", "global, user, project, or all", parseWatchScope, "global")
+  .option("--pull", "also watch enabled target directories and pull new target skills before syncing", false)
+  .option("--fix-names", "when used with --pull, repair folder/name mismatches in pulled skills", false)
+  .action(runWatcher);
+
+program
+  .command("watch-status")
+  .description("Show the currently registered Unity watcher, if any.")
+  .action(async () => {
+    const state = await getWatcherState();
+    if (!state) {
+      console.log("No Unity watcher is running.");
+      return;
+    }
+    console.log(`pid: ${state.pid}`);
+    console.log(`scope: ${state.scope}`);
+    console.log(`pull: ${state.pull}`);
+    console.log(`fix names: ${state.fixNames}`);
+    console.log(`cwd: ${state.cwd}`);
+    console.log(`started: ${state.startedAt}`);
   });
 
 program
@@ -177,6 +249,42 @@ targets
     log({ level: "info", message: `Added custom target ${id}` });
   });
 
+const projects = program.command("projects").description("Manage projects watched by the global watcher.");
+
+projects
+  .command("list")
+  .description("List project roots watched by `unity watch`.")
+  .action(async () => {
+    const registered = await listRegisteredProjects();
+    if (!registered.length) {
+      console.log("(none)");
+      return;
+    }
+    for (const project of registered) console.log(project);
+  });
+
+projects
+  .command("add")
+  .description("Add a project root to the global watcher.")
+  .argument("[path]", "project path", ".")
+  .action(async (projectPath: string) => {
+    const projectRoot = await addRegisteredProject(projectPath);
+    log({ level: "info", message: `Watching project ${projectRoot}` });
+  });
+
+projects
+  .command("remove")
+  .description("Remove a project root from the global watcher.")
+  .argument("[path]", "project path", ".")
+  .action(async (projectPath: string) => {
+    const projectRoot = await removeRegisteredProject(projectPath);
+    if (projectRoot) {
+      log({ level: "info", message: `Stopped watching project ${projectRoot}` });
+    } else {
+      log({ level: "warning", message: "Project was not registered" });
+    }
+  });
+
 program
   .command("import")
   .description("Import existing skills from an agent target or arbitrary path into Unity source.")
@@ -216,6 +324,59 @@ try {
 function parseScope(value: string): ScopeInput {
   if (value === "user" || value === "project" || value === "all") return value;
   throw new InvalidArgumentError("scope must be user, project, or all");
+}
+
+type WatchScopeInput = ScopeInput | "global";
+
+function parseWatchScope(value: string): WatchScopeInput {
+  if (value === "global" || value === "user" || value === "project" || value === "all") return value;
+  throw new InvalidArgumentError("scope must be global, user, project, or all");
+}
+
+function watchArgs(options: { scope: WatchScopeInput; pull: boolean; fixNames: boolean }): string[] {
+  return [
+    "--scope",
+    options.scope,
+    ...(options.pull ? ["--pull"] : []),
+    ...(options.fixNames ? ["--fix-names"] : [])
+  ];
+}
+
+async function runWatcher(options: { scope: WatchScopeInput; pull: boolean; fixNames: boolean }): Promise<void> {
+  await claimWatcher({
+    scope: options.scope,
+    pull: options.pull,
+    fixNames: options.fixNames,
+    cwd: process.cwd()
+  });
+  try {
+    if (options.scope === "global") {
+      await ensureScope("user");
+      await watchGlobal(process.cwd(), log, { pull: options.pull, fixNames: options.fixNames });
+    } else {
+      const scopes = expandScopes(options.scope);
+      for (const scope of scopes) await ensureScope(scope);
+      await watchScopes(scopes, process.cwd(), log, { pull: options.pull, fixNames: options.fixNames });
+    }
+  } finally {
+    await releaseWatcher();
+  }
+}
+
+async function waitForBackgroundWatcher(pid: number | undefined): Promise<void> {
+  if (!pid) throw new Error("Failed to start Unity watcher process.");
+  for (let index = 0; index < 20; index += 1) {
+    const state = await getWatcherState();
+    if (state?.pid === pid) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Unity watcher process ${pid} did not report ready state.`);
+}
+
+async function pushScopes(options: { scope: ScopeInput; force: boolean; dryRun: boolean }): Promise<void> {
+  for (const scope of expandScopes(options.scope)) {
+    printResult(await syncScope(scope, { force: options.force, dryRun: options.dryRun }), options.dryRun);
+  }
 }
 
 async function setTargetEnabled(scope: Scope, targetId: string, enabled: boolean): Promise<void> {

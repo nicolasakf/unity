@@ -12,6 +12,7 @@ export type TargetConfig = {
 export type UnityConfig = {
   version: 1;
   targets: Record<string, TargetConfig>;
+  projects: string[];
 };
 
 export type ManagedSkill = {

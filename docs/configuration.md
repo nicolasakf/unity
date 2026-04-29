@@ -4,12 +4,14 @@ Unity stores config and sync state separately for user and project scopes.
 
 | Scope | Config | State | Source |
 | --- | --- | --- | --- |
-| User | `~/.agent/config.json` | `~/.agent/state.json` | `~/.agent/skills` |
-| Project | `<repo>/.agent/config.json` | `<repo>/.agent/state.json` | `<repo>/.agent/skills` |
+| User | `~/.agents/config.json` | `~/.agents/state.json` | `~/.agents/skills` |
+| Project | `<repo>/.agents/config.json` | `<repo>/.agents/state.json` | `<repo>/.agents/skills` |
 
-`state.json` is a manifest of Unity-managed target files. It is used to avoid overwriting files that were not created by Unity.
+`state.json` is a manifest of Unity-managed target files. It is used to avoid overwriting files that were not created by Unity. Codex reads the Unity source path directly, so the Codex target is skipped during copy and prune operations.
 
 `sync.lock` is created while Unity mutates a scope. If another Unity process sees the lock, it stops instead of racing the active operation. Locks older than 30 minutes are treated as stale and replaced.
+
+`watch.json` is stored in the user config directory and records the active Unity watcher PID and flags. Starting a new watcher terminates the previous registered watcher before claiming the file.
 
 ## Config shape
 
@@ -27,7 +29,8 @@ Unity stores config and sync state separately for user and project scopes.
       },
       "builtIn": true
     }
-  }
+  },
+  "projects": []
 }
 ```
 
@@ -41,6 +44,8 @@ Each target has:
 | `enabled.user` | Whether user-scope sync writes to this target. |
 | `enabled.project` | Whether project-scope sync writes to this target. |
 | `builtIn` | Whether Unity created the target by default. |
+
+The user config also has a top-level `projects` array. `unity projects add <path>` stores project roots there, and `unity watch` uses that registry for its global watcher.
 
 ## Built-in targets
 

@@ -7,7 +7,7 @@ import { createTempProject, writeSkill } from "./helpers.js";
 describe("skill validation", () => {
   it("accepts a valid Agent Skill", async () => {
     const { root } = await createTempProject();
-    const directory = await writeSkill(path.join(root, ".agent", "skills"), "code-review");
+    const directory = await writeSkill(path.join(root, ".agents", "skills"), "code-review");
 
     const validation = await validateSkill(directory);
 
@@ -19,7 +19,7 @@ describe("skill validation", () => {
 
   it("requires the frontmatter name to match the folder", async () => {
     const { root } = await createTempProject();
-    const directory = path.join(root, ".agent", "skills", "folder-name");
+    const directory = path.join(root, ".agents", "skills", "folder-name");
     await fs.mkdir(directory, { recursive: true });
     await fs.writeFile(
       path.join(directory, "SKILL.md"),
@@ -35,7 +35,7 @@ describe("skill validation", () => {
 
   it("rejects invalid skill names", async () => {
     const { root } = await createTempProject();
-    const directory = path.join(root, ".agent", "skills", "BadName");
+    const directory = path.join(root, ".agents", "skills", "BadName");
     await fs.mkdir(directory, { recursive: true });
     await fs.writeFile(
       path.join(directory, "SKILL.md"),

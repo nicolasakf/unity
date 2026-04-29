@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ensureScope, loadConfig, saveConfig } from "../src/config.js";
+import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, removeRegisteredProject, saveConfig } from "../src/config.js";
 import { expandPath, resolveTargetPath, sourceDir } from "../src/paths.js";
 import { getStatus } from "../src/status.js";
 import { createTempProject, exists } from "./helpers.js";
@@ -12,8 +12,8 @@ describe("configuration and paths", () => {
     await ensureScope("user", root);
     await ensureScope("project", root);
 
-    await expect(exists(path.join(home, ".agent", "skills"))).resolves.toBe(true);
-    await expect(exists(path.join(root, ".agent", "skills"))).resolves.toBe(true);
+    await expect(exists(path.join(home, ".agents", "skills"))).resolves.toBe(true);
+    await expect(exists(path.join(root, ".agents", "skills"))).resolves.toBe(true);
   });
 
   it("expands home and project-relative target paths", async () => {
@@ -33,7 +33,7 @@ describe("configuration and paths", () => {
     const reloaded = await loadConfig("project", root);
 
     expect(reloaded.targets.cursor.enabled.project).toBe(false);
-    expect(sourceDir("project", root)).toBe(path.join(root, ".agent", "skills"));
+    expect(sourceDir("project", root)).toBe(path.join(root, ".agents", "skills"));
   });
 
   it("reports verbose status details", async () => {
@@ -45,5 +45,21 @@ describe("configuration and paths", () => {
     expect(status.targets.map((target) => target.id)).toContain("cursor");
     expect(status.skillNames).toEqual([]);
     expect(status.invalidSkillDetails).toEqual([]);
+  });
+
+  it("registers project roots for the global watcher", async () => {
+    const { root } = await createTempProject();
+
+    const registered = await addRegisteredProject(".", root);
+
+    expect(registered).toBe(root);
+    await expect(listRegisteredProjects(root)).resolves.toEqual([root]);
+    await expect(exists(path.join(root, ".agents", "skills"))).resolves.toBe(true);
+
+    await addRegisteredProject(".", root);
+    await expect(listRegisteredProjects(root)).resolves.toEqual([root]);
+
+    await expect(removeRegisteredProject(".", root)).resolves.toBe(root);
+    await expect(listRegisteredProjects(root)).resolves.toEqual([]);
   });
 });

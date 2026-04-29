@@ -42,6 +42,8 @@ For both:
 unity init --scope all
 ```
 
+`init` creates a user-level `unity-skill` from Unity's README and pushes it to enabled user targets. This helps coding agents understand the user's Unity setup.
+
 ## Import existing skills
 
 If the user already has skills in one agent, import them into Unity before syncing:
@@ -60,31 +62,56 @@ unity import --from ~/.claude/skills --scope user
 unity import --from .cursor/skills --scope project
 ```
 
-## Sync
-
-Run a one-time sync:
+To discover new skills across all enabled targets, pull into Unity:
 
 ```bash
-unity sync --scope all
+unity pull --scope all --fix-names
+```
+
+## Push
+
+Push Unity's source skills to enabled agent directories:
+
+```bash
+unity push --scope all
 ```
 
 Preview first when touching an existing setup:
 
 ```bash
-unity sync --scope all --dry-run
+unity push --scope all --dry-run
 ```
 
 If Unity reports conflicts, do not use `--force` without user approval. Conflicts mean a target skill exists or changed outside Unity.
 
+`unity sync` is still available as the older name for `unity push`.
+
 ## Background process
 
-Unity v1 uses a foreground watcher:
+Register projects once:
 
 ```bash
-unity watch --scope all
+unity projects add /path/to/repo
+unity projects list
 ```
 
+Run one background watcher for user scope and all registered projects:
+
+```bash
+unity watch --pull
+```
+
+Unity stores the active watcher in `~/.agents/watch.json`. Starting another `unity watch` replaces the previous watcher, so agents should prefer launching the desired watcher command directly instead of trying to keep multiple watchers alive.
+
+The running watcher reloads the project registry when `unity projects add` or `unity projects remove` updates the user config.
+
 Keep this process running in the terminal session or arrange for the user to launch it in their preferred process manager.
+
+For one-off debugging in the current repository, use:
+
+```bash
+unity watch --scope project --pull --foreground
+```
 
 ## Excluding an agent
 

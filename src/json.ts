@@ -12,6 +12,13 @@ export async function readJsonFile<T>(filePath: string, fallback: T): Promise<T>
 }
 
 export async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
+  const next = `${JSON.stringify(value, null, 2)}\n`;
+  try {
+    const current = await fs.readFile(filePath, "utf8");
+    if (current === next) return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await fs.writeFile(filePath, next, "utf8");
 }
