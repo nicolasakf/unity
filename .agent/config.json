@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "targets": {
+    "codex": {
+      "id": "codex",
+      "userPath": "~/.agents/skills",
+      "projectPath": ".agents/skills",
+      "enabled": {
+        "user": true,
+        "project": true
+      },
+      "builtIn": true
+    },
+    "claude": {
+      "id": "claude",
+      "userPath": "~/.claude/skills",
+      "projectPath": ".claude/skills",
+      "enabled": {
+        "user": true,
+        "project": true
+      },
+      "builtIn": true
+    },
+    "cursor": {
+      "id": "cursor",
+      "userPath": "~/.cursor/skills",
+      "projectPath": ".cursor/skills",
+      "enabled": {
+        "user": true,
+        "project": true
+      },
+      "builtIn": true
+    },
+    "opencode": {
+      "id": "opencode",
+      "userPath": "~/.config/opencode/skills",
+      "projectPath": ".opencode/skills",
+      "enabled": {
+        "user": true,
+        "project": true
+      },
+      "builtIn": true
+    }
+  }
+}
