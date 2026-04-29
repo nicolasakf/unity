@@ -1,0 +1,51 @@
+{
+  "name": "@agent-skills/unity",
+  "version": "0.1.0",
+  "description": "Mirror one source-of-truth Agent Skills directory into Cursor, Claude Code, Codex, OpenCode, and custom agent skill directories.",
+  "type": "module",
+  "bin": {
+    "unity": "./dist/cli.js"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "docs",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "build": "tsup src/cli.ts --format esm --dts --clean --sourcemap",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "agent-skills",
+    "skills",
+    "codex",
+    "claude-code",
+    "cursor",
+    "opencode",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
