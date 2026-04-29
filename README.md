@@ -51,13 +51,26 @@ Use this skill when reviewing a pull request or local diff.
 
 ## Quickstart
 
-Initialize both user and project scopes:
+Initialize user-level Unity:
 
 ```bash
-unity init --scope all
+unity init
 ```
 
 `init` also creates a user-level `unity-skill` from this README and pushes it to enabled user targets, so coding agents can learn how Unity works.
+
+On **first init** in an interactive terminal, Unity prompts for two things:
+
+1. **Providers** — enter comma-separated built-in ids (codex, claude, cursor, …), or Enter to disable all. That choice is stored for **both** user- and project-scoped sync; new project configs copy it from your user config so you do not get every agent enabled at the repo level by default.
+2. **Projects** (optional) — type each repository root, then Enter to register it with `unity watch`; press Enter on an empty line when you are finished, or press **Escape** to stop adding paths.
+
+Coding agents or scripts cannot use interactive prompts. Run init without prompts like this:
+
+```bash
+unity init --non-interactive [--targets codex,orion] [--projects /abs/path/to/repo]
+```
+
+Equivalent environment variables (`UNITY_INIT_TARGETS`, `UNITY_INIT_PROJECTS`; set `UNITY_INIT_NON_INTERACTIVE=1` to force non-interactive even in a tty) are documented under [configuration](docs/configuration.md#non-interactive-init).
 
 Import existing skills from an agent directory:
 
@@ -130,16 +143,24 @@ unity watch --pull --foreground
 | Codex | `~/.agents/skills` | `.agents/skills` |
 | Orion | `~/.agents/skills` | `.agents/skills` |
 | Claude Code | `~/.claude/skills` | `.claude/skills` |
+| Augment | `~/.augment/skills` | `.augment/skills` |
 | Cursor | `~/.cursor/skills` | `.cursor/skills` |
+| Devin | `~/.config/devin/skills` | `.devin/skills` |
+| Factory | `~/.factory/skills` | `.factory/skills` |
+| Goose | `~/.config/goose/skills` | `.goose/skills` |
+| OpenClaw | `~/.openclaw/skills` | `.agents/skills` |
 | OpenCode | `~/.config/opencode/skills` | `.opencode/skills` |
+| OpenHands | `~/.openhands/skills` | `.openhands/skills` |
+| Qwen Code | `~/.qwen/skills` | `.qwen/skills` |
+| Windsurf | `~/.codeium/windsurf/skills` | `.windsurf/skills` |
 
-Cursor paths are included from the project requirements. Codex and Orion use the Unity source directory directly: `.agents/skills` and `~/.agents/skills`.
+Codex, Orion, and project OpenClaw use the Unity source directory directly: `.agents/skills` and `~/.agents/skills`.
 
 ## Safety model
 
 Unity mirrors by copying directories, not by creating symlinks.
 
-Unity's push direction writes from `.agents/skills` into enabled agent targets. Codex and Orion already read that source path, so Unity skips those targets as copy destinations. The pull direction imports new skills from targets into `.agents/skills`; it skips source skills that already exist unless you use the explicit import workflow to handle a specific target.
+Unity's push direction writes from `.agents/skills` into enabled agent targets. Codex, Orion, and project OpenClaw already read that source path, so Unity skips those targets as copy destinations. The pull direction imports new skills from targets into `.agents/skills`; it skips source skills that already exist unless you use the explicit import workflow to handle a specific target.
 
 Unity tracks every file it writes in `.agents/state.json` or `~/.agents/state.json`. On future syncs it only overwrites or removes files when the target still matches Unity's manifest.
 

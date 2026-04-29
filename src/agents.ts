@@ -22,6 +22,13 @@ export const BUILT_IN_TARGETS: Record<string, TargetConfig> = {
     enabled: { user: true, project: true },
     builtIn: true
   },
+  augment: {
+    id: "augment",
+    userPath: "~/.augment/skills",
+    projectPath: ".augment/skills",
+    enabled: { user: true, project: true },
+    builtIn: true
+  },
   cursor: {
     id: "cursor",
     userPath: "~/.cursor/skills",
@@ -29,10 +36,59 @@ export const BUILT_IN_TARGETS: Record<string, TargetConfig> = {
     enabled: { user: true, project: true },
     builtIn: true
   },
+  devin: {
+    id: "devin",
+    userPath: "~/.config/devin/skills",
+    projectPath: ".devin/skills",
+    enabled: { user: true, project: true },
+    builtIn: true
+  },
+  factory: {
+    id: "factory",
+    userPath: "~/.factory/skills",
+    projectPath: ".factory/skills",
+    enabled: { user: true, project: true },
+    builtIn: true
+  },
+  goose: {
+    id: "goose",
+    userPath: "~/.config/goose/skills",
+    projectPath: ".goose/skills",
+    enabled: { user: true, project: true },
+    builtIn: true
+  },
+  openclaw: {
+    id: "openclaw",
+    userPath: "~/.openclaw/skills",
+    projectPath: ".agents/skills",
+    enabled: { user: true, project: true },
+    builtIn: true
+  },
   opencode: {
     id: "opencode",
     userPath: "~/.config/opencode/skills",
     projectPath: ".opencode/skills",
+    enabled: { user: true, project: true },
+    builtIn: true
+  },
+  openhands: {
+    id: "openhands",
+    userPath: "~/.openhands/skills",
+    projectPath: ".openhands/skills",
+    enabled: { user: true, project: true },
+    builtIn: true
+  },
+  qwen: {
+    id: "qwen",
+    userPath: "~/.qwen/skills",
+    projectPath: ".qwen/skills",
+    enabled: { user: true, project: true },
+    builtIn: true
+  },
+  windsurf: {
+    id: "windsurf",
+    userPath: "~/.codeium/windsurf/skills",
+    projectPath: ".windsurf/skills",
     enabled: { user: true, project: true },
     builtIn: true
   }

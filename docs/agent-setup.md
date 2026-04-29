@@ -24,25 +24,29 @@ unity --help
 
 ## Initialize
 
-For a user-wide skills source:
+For the user-wide skills source:
 
 ```bash
-unity init --scope user
-```
-
-For the current repository:
-
-```bash
-unity init --scope project
-```
-
-For both:
-
-```bash
-unity init --scope all
+unity init
 ```
 
 `init` creates a user-level `unity-skill` from Unity's README and pushes it to enabled user targets. This helps coding agents understand the user's Unity setup.
+
+On **first init** in an interactive terminal, Unity first asks which built-in providers to enable (comma-separated ids). Then it optionally registers **project roots** for the global watcher: type each path and press Enter to add it; press Enter on an empty line when done, or press **Escape** to stop adding paths. Each registration creates that project’s Unity scope (including `.agents` under that repo).
+
+**Agents cannot use interactive stdin.** Initialize without prompts so the command exits immediately:
+
+```bash
+UNITY_INIT_TARGETS=codex,claude UNITY_INIT_PROJECTS=/path/to/repo unity init --non-interactive
+```
+
+Or use CLI flags instead of env vars:
+
+```bash
+unity init --non-interactive --targets codex,cursor --projects "$HOME/workbench/my-app"
+```
+
+With `--non-interactive` and no `--targets` / no `UNITY_INIT_TARGETS`, all built-in user targets stay **disabled** (same as pressing Enter alone at the provider prompt). With no projects given, none are registered.
 
 ## Import existing skills
 

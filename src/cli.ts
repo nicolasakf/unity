@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError } from "commander";
 import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, removeRegisteredProject, saveConfig } from "./config.js";
-import { expandScopes, resolveTargetPath, sourceDir } from "./paths.js";
+import { configPath, expandScopes, resolveTargetPath, sourceDir } from "./paths.js";
 import { getStatus } from "./status.js";
 import { importSkills, pruneTarget, pullScope, syncScope } from "./sync.js";
 import type { Scope, ScopeInput, SyncResult, TargetConfig, UnityMessage } from "./types.js";
@@ -10,8 +11,17 @@ import { watchGlobal, watchScopes } from "./watch.js";
 import { listValidSkills } from "./skills.js";
 import { ensureUnitySkill } from "./unity-skill.js";
 import { claimWatcher, getWatcherState, releaseWatcher, stopExistingWatcher } from "./watch-state.js";
+import { readLineWithEscape } from "./init-prompt.js";
 
 const program = new Command();
+
+type InitMode =
+  | { interactive: true }
+  | {
+      interactive: false;
+      targetsCsv: string | undefined;
+      projectsCsv: string | undefined;
+    };
 
 program
   .name("unity")
@@ -20,17 +30,32 @@ program
 
 program
   .command("init")
-  .description("Create Unity source, config, and state directories.")
-  .option("--scope <scope>", "user, project, or all", parseScope, "all")
-  .action(async (options: { scope: ScopeInput }) => {
-    for (const scope of expandScopes(options.scope)) {
-      await ensureScope(scope);
-      log({ level: "info", message: `Initialized ${scope} scope at ${sourceDir(scope)}` });
+  .description("Create Unity user source, config, and state directories.")
+  .option("--non-interactive", "skip prompts (for scripts and agents); use --targets/--projects or UNITY_INIT_* env")
+  .option("--targets <ids>", "comma-separated built-in provider ids to enable for user scope (non-interactive)")
+  .option("--projects <paths>", "comma-separated project roots to register for the watcher (non-interactive)")
+  .action(
+    async (options: {
+      nonInteractive?: boolean;
+      targets?: string;
+      projects?: string;
+    }) => {
+      const firstInit = !(await fileExists(configPath("user")));
+      await ensureScope("user");
+      if (firstInit) {
+        const mode = resolveInitMode(options);
+        await configureTargets("user", mode);
+        await configureInitProjects(mode);
+      }
+      log({ level: "info", message: `Initialized user scope at ${sourceDir("user")}` });
+      const skillState = await ensureUnitySkill();
+      log({
+        level: "info",
+        message: `${skillState === "created" ? "Created" : "Found"} user unity-skill at ${sourceDir("user")}/unity-skill`
+      });
+      printResult(await syncScope("user"));
     }
-    const skillState = await ensureUnitySkill();
-    log({ level: "info", message: `${skillState === "created" ? "Created" : "Found"} user unity-skill at ${sourceDir("user")}/unity-skill` });
-    printResult(await syncScope("user"));
-  });
+  );
 
 program
   .command("sync")
@@ -324,6 +349,116 @@ try {
 function parseScope(value: string): ScopeInput {
   if (value === "user" || value === "project" || value === "all") return value;
   throw new InvalidArgumentError("scope must be user, project, or all");
+}
+
+function resolveInitMode(options: { nonInteractive?: boolean; targets?: string; projects?: string }): InitMode {
+  const forceNonInteractive =
+    Boolean(options.nonInteractive) ||
+    !process.stdin.isTTY ||
+    !process.stdout.isTTY ||
+    process.env.UNITY_INIT_NON_INTERACTIVE === "1";
+
+  if (forceNonInteractive) {
+    return {
+      interactive: false,
+      targetsCsv: options.targets ?? process.env.UNITY_INIT_TARGETS,
+      projectsCsv: options.projects ?? process.env.UNITY_INIT_PROJECTS
+    };
+  }
+  return { interactive: true };
+}
+
+function parseCommaList(value: string | undefined): string[] {
+  if (!value?.trim()) return [];
+  return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
+async function configureTargets(scope: Scope, mode: InitMode): Promise<void> {
+  const config = await loadConfig(scope);
+  const targets = Object.values(config.targets).filter((target) => target.builtIn);
+
+  if (!mode.interactive) {
+    const enabled = new Set(parseCommaList(mode.targetsCsv).map((id) => id.toLowerCase()));
+    const known = new Set(targets.map((target) => target.id));
+    for (const id of enabled) {
+      if (!known.has(id)) console.log(`warning: unknown provider "${id}"`);
+    }
+    for (const target of targets) {
+      const on = enabled.has(target.id);
+      target.enabled.user = on;
+      target.enabled.project = on;
+    }
+    await saveConfig(scope, config);
+    return;
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  console.log("");
+  console.log("Choose providers to mirror into coding agents at user scope and registered project repos.");
+  console.log(`Available: ${targets.map((target) => target.id).join(", ")}`);
+  console.log("Enter provider ids separated by commas. Press Enter for none.");
+
+  try {
+    const answer = await rl.question("Enable providers: ");
+    const enabled = new Set(answer.split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean));
+    const known = new Set(targets.map((target) => target.id));
+    for (const id of enabled) {
+      if (!known.has(id)) console.log(`warning: unknown provider "${id}"`);
+    }
+    for (const target of targets) {
+      const on = enabled.has(target.id);
+      target.enabled.user = on;
+      target.enabled.project = on;
+    }
+  } finally {
+    rl.close();
+  }
+
+  await saveConfig(scope, config);
+}
+
+async function configureInitProjects(mode: InitMode): Promise<void> {
+  if (!mode.interactive) {
+    for (const input of parseCommaList(mode.projectsCsv)) {
+      try {
+        const root = await addRegisteredProject(input);
+        log({ level: "info", message: `Registered project ${root}` });
+      } catch (error) {
+        log({ level: "warning", message: (error as Error).message });
+      }
+    }
+    return;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+
+  console.log("");
+  console.log("Register project roots for `unity watch` (optional).");
+  console.log(
+    "Type each project path (repository root), then press Enter to add it. Press Enter on an empty line when you are done, or press Escape to stop adding projects."
+  );
+
+  while (true) {
+    const result = await readLineWithEscape("Project path: ");
+    if (result === null) break;
+    if (result.trim() === "") break;
+    try {
+      const root = await addRegisteredProject(result.trim());
+      log({ level: "info", message: `Registered project ${root}` });
+    } catch (error) {
+      log({ level: "warning", message: (error as Error).message });
+    }
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 type WatchScopeInput = ScopeInput | "global";

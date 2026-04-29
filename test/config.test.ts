@@ -47,6 +47,26 @@ describe("configuration and paths", () => {
     expect(status.invalidSkillDetails).toEqual([]);
   });
 
+  it("new project configs inherit provider selection from user config", async () => {
+    const { root } = await createTempProject();
+
+    await ensureScope("user", root);
+    const userCfg = await loadConfig("user", root);
+    for (const target of Object.values(userCfg.targets)) {
+      target.enabled.user = target.id === "codex";
+      target.enabled.project = target.id !== "codex";
+    }
+    await saveConfig("user", userCfg, root);
+
+    await ensureScope("project", root);
+    const projectCfg = await loadConfig("project", root);
+
+    expect(projectCfg.targets.codex.enabled.project).toBe(true);
+    expect(projectCfg.targets.codex.enabled.user).toBe(true);
+    expect(projectCfg.targets.cursor.enabled.project).toBe(false);
+    expect(projectCfg.targets.claude.enabled.user).toBe(false);
+  });
+
   it("registers project roots for the global watcher", async () => {
     const { root } = await createTempProject();
 

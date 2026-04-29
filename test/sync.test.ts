@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ensureScope, loadConfig, saveConfig } from "../src/config.js";
-import { sourceDir } from "../src/paths.js";
+import { enabledTargets, ensureScope, loadConfig, saveConfig } from "../src/config.js";
+import { resolveTargetPath, sourceDir } from "../src/paths.js";
 import { importSkills, pruneTarget, pullScope, syncScope } from "../src/sync.js";
 import { createTempProject, exists, readText, writeSkill } from "./helpers.js";
 
@@ -14,11 +14,14 @@ describe("sync", () => {
 
     const result = await syncScope("project", { cwd: root });
 
-    expect(result.copied).toBe(3);
+    await expect(expectedCopiedTargets("project", root)).resolves.toBe(result.copied);
     await expect(exists(path.join(root, ".agents", "skills", "code-review", "SKILL.md"))).resolves.toBe(true);
     await expect(exists(path.join(root, ".claude", "skills", "code-review", "SKILL.md"))).resolves.toBe(true);
     await expect(exists(path.join(root, ".cursor", "skills", "code-review", "SKILL.md"))).resolves.toBe(true);
     await expect(exists(path.join(root, ".opencode", "skills", "code-review", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(root, ".augment", "skills", "code-review", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(root, ".windsurf", "skills", "code-review", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(root, ".qwen", "skills", "code-review", "SKILL.md"))).resolves.toBe(true);
   });
 
   it("mirrors user skills into all built-in user targets", async () => {
@@ -28,11 +31,15 @@ describe("sync", () => {
 
     const result = await syncScope("user", { cwd: root });
 
-    expect(result.copied).toBe(3);
+    await expect(expectedCopiedTargets("user", root)).resolves.toBe(result.copied);
     await expect(exists(path.join(home, ".agents", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
     await expect(exists(path.join(home, ".claude", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
     await expect(exists(path.join(home, ".cursor", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
     await expect(exists(path.join(home, ".config", "opencode", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(home, ".augment", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(home, ".codeium", "windsurf", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(home, ".openclaw", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(home, ".qwen", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
   });
 
   it("removes managed target skills when source skills are deleted", async () => {
@@ -44,7 +51,7 @@ describe("sync", () => {
     await fs.rm(skillDir, { recursive: true });
     const result = await syncScope("project", { cwd: root });
 
-    expect(result.removed).toBe(3);
+    await expect(expectedCopiedTargets("project", root)).resolves.toBe(result.removed);
     await expect(exists(path.join(root, ".agents", "skills", "temporary-skill"))).resolves.toBe(false);
   });
 
@@ -58,7 +65,7 @@ describe("sync", () => {
 
     const result = await syncScope("project", { cwd: root });
 
-    expect(result.copied).toBe(2);
+    await expect(expectedCopiedTargets("project", root, ["claude"])).resolves.toBe(result.copied);
     await expect(exists(path.join(root, ".claude", "skills", "cursor-only"))).resolves.toBe(false);
   });
 
@@ -85,7 +92,7 @@ describe("sync", () => {
 
     const result = await syncScope("project", { cwd: root, dryRun: true });
 
-    expect(result.copied).toBe(3);
+    await expect(expectedCopiedTargets("project", root)).resolves.toBe(result.copied);
     await expect(exists(path.join(root, ".claude", "skills", "preview-skill"))).resolves.toBe(false);
     await expect(exists(path.join(root, ".agents", "state.json"))).resolves.toBe(false);
   });
@@ -187,3 +194,13 @@ describe("sync", () => {
     await expect(syncScope("project", { cwd: root })).rejects.toThrow("Another Unity operation");
   });
 });
+
+async function expectedCopiedTargets(scope: "user" | "project", root: string, disabled: string[] = []): Promise<number> {
+  const config = await loadConfig(scope, root);
+  const source = sourceDir(scope, root);
+  return enabledTargets(config, scope).filter((target) => {
+    if (disabled.includes(target.id)) return false;
+    const targetPath = resolveTargetPath(scope === "user" ? target.userPath : target.projectPath, scope, root);
+    return path.resolve(targetPath) !== path.resolve(source);
+  }).length;
+}
