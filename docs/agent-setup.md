@@ -7,13 +7,13 @@ This guide is written for coding agents setting up Unity for a user.
 Prefer the package manager already used on the machine:
 
 ```bash
-npm install -g @agent-skills/unity
+npm install -g @nicolasakf/unity
 ```
 
 or:
 
 ```bash
-bun add -g @agent-skills/unity
+bun add -g @nicolasakf/unity
 ```
 
 Verify:

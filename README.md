@@ -5,20 +5,20 @@ Unity keeps Agent Skills in one source-of-truth directory and mirrors them into 
 ## Install
 
 ```bash
-npm install -g @agent-skills/unity
+npm install -g @nicolasakf/unity
 unity --help
 ```
 
 ```bash
-bun add -g @agent-skills/unity
+bun add -g @nicolasakf/unity
 unity --help
 ```
 
 For one-off use:
 
 ```bash
-npx @agent-skills/unity sync
-bunx @agent-skills/unity sync
+npx @nicolasakf/unity sync
+bunx @nicolasakf/unity sync
 ```
 
 ## How it works

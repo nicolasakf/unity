@@ -1,5 +1,5 @@
 {
-  "name": "@agent-skills/unity",
+  "name": "@nicolasakf/unity",
   "version": "0.1.0",
   "description": "Mirror one source-of-truth Agent Skills directory into Cursor, Claude Code, Codex, OpenCode, and custom agent skill directories.",
   "type": "module",
@@ -21,7 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
-    "agent-skills",
+    "nicolasakf",
     "skills",
     "codex",
     "claude-code",
