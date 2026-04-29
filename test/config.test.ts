@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, removeRegisteredProject, saveConfig } from "../src/config.js";
-import { expandPath, resolveTargetPath, sourceDir } from "../src/paths.js";
+import { expandPath, isPathWithin, pathsEqual, resolveTargetPath, sourceDir } from "../src/paths.js";
 import { getStatus } from "../src/status.js";
 import { createTempProject, exists } from "./helpers.js";
 
@@ -65,6 +65,26 @@ describe("configuration and paths", () => {
     expect(projectCfg.targets.codex.enabled.user).toBe(true);
     expect(projectCfg.targets.cursor.enabled.project).toBe(false);
     expect(projectCfg.targets.claude.enabled.user).toBe(false);
+  });
+
+  it("compares paths with platform-appropriate casing", () => {
+    const a = path.resolve("/foo/bar");
+    const b = path.resolve("/foo/bar/");
+    expect(pathsEqual(a, b)).toBe(true);
+    expect(pathsEqual("/foo/bar", "/foo/baz")).toBe(false);
+    if (process.platform === "win32") {
+      expect(pathsEqual("C:\\Foo\\Bar", "c:\\foo\\bar")).toBe(true);
+    }
+  });
+
+  it("detects paths within parents using platform casing", () => {
+    expect(isPathWithin("/foo", "/foo/bar")).toBe(true);
+    expect(isPathWithin("/foo", "/foo")).toBe(true);
+    expect(isPathWithin("/foo", "/foobar")).toBe(false);
+    expect(isPathWithin("/foo/bar", "/foo")).toBe(false);
+    if (process.platform === "win32") {
+      expect(isPathWithin("C:\\Foo", "c:\\foo\\bar")).toBe(true);
+    }
   });
 
   it("registers project roots for the global watcher", async () => {

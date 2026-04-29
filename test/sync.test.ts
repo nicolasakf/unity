@@ -227,6 +227,23 @@ describe("sync", () => {
     await expect(exists(path.join(target, ".git"))).resolves.toBe(false);
   });
 
+  it("does not copy symlinked directories nested inside skills", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    const skillDir = await writeSkill(sourceDir("project", root), "linked-content");
+    const outsideDir = path.join(root, "outside");
+    await fs.mkdir(outsideDir, { recursive: true });
+    await fs.writeFile(path.join(outsideDir, "secret.txt"), "secret", "utf8");
+    await fs.symlink(outsideDir, path.join(skillDir, "linked"), "dir");
+
+    await syncScope("project", { cwd: root });
+
+    const target = path.join(root, ".claude", "skills", "linked-content");
+    await expect(exists(path.join(target, "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(target, "linked"))).resolves.toBe(false);
+    await expect(exists(path.join(target, "linked", "secret.txt"))).resolves.toBe(false);
+  });
+
   it("refuses to overwrite a target that is a symbolic link", async () => {
     const { root } = await createTempProject();
     await ensureScope("project", root);

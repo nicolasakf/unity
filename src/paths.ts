@@ -56,3 +56,19 @@ export function resolveTargetPath(input: string, scope: Scope, cwd = process.cwd
 export function expandScopes(scope: Scope | "all"): Scope[] {
   return scope === "all" ? ["user", "project"] : [scope];
 }
+
+export function pathsEqual(a: string, b: string): boolean {
+  return normalizeForCompare(a) === normalizeForCompare(b);
+}
+
+export function isPathWithin(parent: string, child: string): boolean {
+  const parentN = normalizeForCompare(parent);
+  const childN = normalizeForCompare(child);
+  if (childN === parentN) return true;
+  return childN.startsWith(parentN + path.sep);
+}
+
+function normalizeForCompare(input: string): string {
+  const resolved = path.resolve(input);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}

@@ -3,7 +3,7 @@ import path from "node:path";
 import { ensureScope, enabledTargets, loadConfig } from "./config.js";
 import { copyDirectory, hashTree, pathExists, removeDirectory, sameHashTree } from "./file-tree.js";
 import { withScopeLock } from "./lock.js";
-import { resolveTargetPath, sourceDir } from "./paths.js";
+import { pathsEqual, resolveTargetPath, sourceDir } from "./paths.js";
 import { getNameMismatchRepair, listValidSkills } from "./skills.js";
 import { loadState, saveState } from "./state.js";
 import type { ManagedSkill, Scope, SyncResult, TargetConfig, TargetState, UnityMessage } from "./types.js";
@@ -57,12 +57,12 @@ async function syncScopeUnlocked(scope: Scope, options: SyncOptions = {}): Promi
 
   for (const target of enabledTargets(config, scope)) {
     const targetPath = resolveTargetPath(pathForScope(target, scope), scope, cwd);
-    if (samePath(targetPath, source)) {
+    if (pathsEqual(targetPath, source)) {
       messages.push({ level: "info", message: `Skipped ${target.id}: target is the Unity source` });
       continue;
     }
     if (!dryRun) await fs.mkdir(targetPath, { recursive: true });
-    const targetState = state.targets[target.id]?.targetPath === targetPath
+    const targetState = state.targets[target.id] && pathsEqual(state.targets[target.id].targetPath, targetPath)
       ? state.targets[target.id]
       : { targetPath, skills: {} };
 
@@ -163,7 +163,7 @@ async function pruneTargetUnlocked(
     messages
   };
 
-  if (samePath(targetPath, sourceDir(scope, cwd))) {
+  if (pathsEqual(targetPath, sourceDir(scope, cwd))) {
     messages.push({ level: "info", message: `Skipped ${targetId}: target is the Unity source` });
     return result;
   }
@@ -223,7 +223,7 @@ async function pullScopeUnlocked(scope: Scope, options: ImportOptions = {}): Pro
 
   for (const target of enabledTargets(config, scope)) {
     const sourcePath = resolveTargetPath(pathForScope(target, scope), scope, cwd);
-    if (samePath(sourcePath, sourceDir(scope, cwd))) {
+    if (pathsEqual(sourcePath, sourceDir(scope, cwd))) {
       result.messages.push({ level: "info", message: `Skipped ${target.id}: target is the Unity source` });
       continue;
     }
@@ -258,7 +258,7 @@ async function importSkillsUnlocked(from: string, scope: Scope, options: ImportO
   const messages: UnityMessage[] = [];
   const result: SyncResult = { scope, copied: 0, removed: 0, skipped: 0, errors: 0, messages };
 
-  if (samePath(sourcePath, destination)) {
+  if (pathsEqual(sourcePath, destination)) {
     messages.push({ level: "info", message: `Skipped ${from}: import source is the Unity source` });
     return result;
   }
@@ -324,10 +324,6 @@ async function importSkillsUnlocked(from: string, scope: Scope, options: ImportO
 
 function pathForScope(target: TargetConfig, scope: Scope): string {
   return scope === "user" ? target.userPath : target.projectPath;
-}
-
-function samePath(left: string, right: string): boolean {
-  return path.resolve(left) === path.resolve(right);
 }
 
 async function syncSkill(input: {

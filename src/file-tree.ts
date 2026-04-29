@@ -22,6 +22,8 @@ export async function listFiles(root: string): Promise<string[]> {
       const absolute = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         if (entry.name.startsWith(".") || IGNORED_DIRECTORY_NAMES.has(entry.name)) continue;
+        const linkStat = await fs.lstat(absolute);
+        if (linkStat.isSymbolicLink()) continue;
         await walk(absolute);
       } else if (entry.isFile()) {
         files.push(path.relative(root, absolute).split(path.sep).join("/"));

@@ -1,7 +1,7 @@
 import chokidar from "chokidar";
 import path from "node:path";
 import { enabledTargets, listRegisteredProjects, loadConfig } from "./config.js";
-import { configPath, resolveTargetPath, sourceDir } from "./paths.js";
+import { configPath, isPathWithin, pathsEqual, resolveTargetPath, sourceDir } from "./paths.js";
 import { pullScope, syncScope } from "./sync.js";
 import type { Scope, TargetConfig, UnityMessage } from "./types.js";
 
@@ -61,12 +61,12 @@ async function watchTargetSet(
   let reloadRequested = false;
   const sourceDeletes = new Set<string>();
   const run = (eventPath?: string, deleted = false) => {
-    if (dynamic && eventPath && samePath(eventPath, dynamic.reloadPath)) {
+    if (dynamic && eventPath && pathsEqual(eventPath, dynamic.reloadPath)) {
       reloadRequested = true;
     }
     if (deleted && eventPath) {
       for (const target of targets) {
-        if (isWithin(sourceDir(target.scope, target.cwd), eventPath)) sourceDeletes.add(targetKey(target));
+        if (isPathWithin(sourceDir(target.scope, target.cwd), eventPath)) sourceDeletes.add(targetKey(target));
       }
     }
     clearTimeout(timer);
@@ -183,11 +183,3 @@ function targetLabel(target: WatchTarget): string {
   return target.scope === "user" ? "user" : `project ${path.resolve(target.cwd)}`;
 }
 
-function isWithin(parent: string, child: string): boolean {
-  const relative = path.relative(path.resolve(parent), path.resolve(child));
-  return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
-function samePath(left: string, right: string): boolean {
-  return path.resolve(left) === path.resolve(right);
-}
