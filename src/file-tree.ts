@@ -11,6 +11,8 @@ export async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
+const IGNORED_DIRECTORY_NAMES = new Set(["node_modules"]);
+
 export async function listFiles(root: string): Promise<string[]> {
   const files: string[] = [];
 
@@ -19,8 +21,9 @@ export async function listFiles(root: string): Promise<string[]> {
     for (const entry of entries) {
       const absolute = path.join(directory, entry.name);
       if (entry.isDirectory()) {
+        if (entry.name.startsWith(".") || IGNORED_DIRECTORY_NAMES.has(entry.name)) continue;
         await walk(absolute);
-      } else if (entry.isFile() || entry.isSymbolicLink()) {
+      } else if (entry.isFile()) {
         files.push(path.relative(root, absolute).split(path.sep).join("/"));
       }
     }

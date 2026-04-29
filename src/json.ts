@@ -20,5 +20,12 @@ export async function writeJsonFile(filePath: string, value: unknown): Promise<v
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, next, "utf8");
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fs.writeFile(tmp, next, "utf8");
+    await fs.rename(tmp, filePath);
+  } catch (error) {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }

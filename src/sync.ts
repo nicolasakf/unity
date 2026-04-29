@@ -341,8 +341,20 @@ async function syncSkill(input: {
   dryRun: boolean;
   messages: UnityMessage[];
 }): Promise<"copied" | "unchanged" | "skipped"> {
-  const exists = await pathExists(input.targetSkillDir);
-  if (!exists) {
+  const stat = await fs.lstat(input.targetSkillDir).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+
+  if (stat?.isSymbolicLink()) {
+    input.messages.push({
+      level: "warning",
+      message: `Skipped ${input.skillName} in ${input.targetId}: target is a symbolic link`
+    });
+    return "skipped";
+  }
+
+  if (!stat) {
     if (!input.dryRun) await copyDirectory(input.sourceDir, input.targetSkillDir);
     input.messages.push({ level: "info", message: `${input.dryRun ? "Would copy" : "Copied"} ${input.skillName} to ${input.targetId}` });
     return "copied";

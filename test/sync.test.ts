@@ -193,7 +193,67 @@ describe("sync", () => {
 
     await expect(syncScope("project", { cwd: root })).rejects.toThrow("Another Unity operation");
   });
+
+  it("breaks a stale lock whose recorded pid is no longer alive", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    await writeSkill(sourceDir("project", root), "stale-lock-skill");
+    const deadPid = await findDeadPid();
+    await fs.mkdir(path.join(root, ".agents"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, ".agents", "sync.lock"),
+      JSON.stringify({ pid: deadPid, scope: "project", createdAt: new Date().toISOString() }),
+      "utf8"
+    );
+
+    const result = await syncScope("project", { cwd: root });
+    expect(result.copied).toBeGreaterThan(0);
+  });
+
+  it("does not copy node_modules or dot-directories nested inside skills", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    const skillDir = await writeSkill(sourceDir("project", root), "noisy-skill");
+    await fs.mkdir(path.join(skillDir, "node_modules", "junk"), { recursive: true });
+    await fs.writeFile(path.join(skillDir, "node_modules", "junk", "x.js"), "x", "utf8");
+    await fs.mkdir(path.join(skillDir, ".git"), { recursive: true });
+    await fs.writeFile(path.join(skillDir, ".git", "HEAD"), "ref", "utf8");
+
+    await syncScope("project", { cwd: root });
+
+    const target = path.join(root, ".claude", "skills", "noisy-skill");
+    await expect(exists(path.join(target, "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(target, "node_modules"))).resolves.toBe(false);
+    await expect(exists(path.join(target, ".git"))).resolves.toBe(false);
+  });
+
+  it("refuses to overwrite a target that is a symbolic link", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    await writeSkill(sourceDir("project", root), "linked-skill");
+    const elsewhere = path.join(root, "elsewhere");
+    await fs.mkdir(elsewhere, { recursive: true });
+    const targetParent = path.join(root, ".claude", "skills");
+    await fs.mkdir(targetParent, { recursive: true });
+    await fs.symlink(elsewhere, path.join(targetParent, "linked-skill"), "dir");
+
+    const result = await syncScope("project", { cwd: root });
+    expect(result.skipped).toBeGreaterThan(0);
+    const stat = await fs.lstat(path.join(targetParent, "linked-skill"));
+    expect(stat.isSymbolicLink()).toBe(true);
+  });
 });
+
+async function findDeadPid(): Promise<number> {
+  for (let candidate = 999000; candidate > 1; candidate--) {
+    try {
+      process.kill(candidate, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return candidate;
+    }
+  }
+  throw new Error("could not find a dead pid for the test");
+}
 
 async function expectedCopiedTargets(scope: "user" | "project", root: string, disabled: string[] = []): Promise<number> {
   const config = await loadConfig(scope, root);

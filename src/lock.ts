@@ -32,11 +32,43 @@ async function acquireLock(filePath: string, scope: Scope): Promise<() => Promis
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
 
-  const stat = await fs.stat(filePath);
-  if (Date.now() - stat.mtimeMs > STALE_LOCK_MS) {
+  if (await isStaleLock(filePath)) {
     await fs.rm(filePath, { force: true });
     return acquireLock(filePath, scope);
   }
 
   throw new Error(`Another Unity operation is already running for ${scope}. Lock file: ${filePath}`);
+}
+
+async function isStaleLock(filePath: string): Promise<boolean> {
+  const pid = await readLockPid(filePath);
+  if (pid !== undefined && pid !== process.pid && !isProcessAlive(pid)) return true;
+
+  const stat = await fs.stat(filePath).catch(() => undefined);
+  if (!stat) return true;
+  return Date.now() - stat.mtimeMs > STALE_LOCK_MS;
+}
+
+async function readLockPid(filePath: string): Promise<number | undefined> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw) as { pid?: unknown };
+    return typeof parsed.pid === "number" && Number.isInteger(parsed.pid) ? parsed.pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
