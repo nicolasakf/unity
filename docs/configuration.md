@@ -7,7 +7,7 @@ Unity stores config and sync state separately for user and project scopes.
 | User | `~/.agents/config.json` | `~/.agents/state.json` | `~/.agents/skills` |
 | Project | `<repo>/.agents/config.json` | `<repo>/.agents/state.json` | `<repo>/.agents/skills` |
 
-`state.json` is a manifest of Unity-managed target files. It is used to avoid overwriting files that were not created by Unity. Codex reads the Unity source path directly, so the Codex target is skipped during copy and prune operations.
+`state.json` is a manifest of Unity-managed target files. It is used to avoid overwriting files that were not created by Unity. Codex and Orion read the Unity source path directly (under `.agents/skills`), so those targets are skipped during copy and prune operations.
 
 `sync.lock` is created while Unity mutates a scope. If another Unity process sees the lock, it stops instead of racing the active operation. Locks older than 30 minutes are treated as stale and replaced.
 
@@ -21,6 +21,16 @@ Unity stores config and sync state separately for user and project scopes.
   "targets": {
     "codex": {
       "id": "codex",
+      "userPath": "~/.agents/skills",
+      "projectPath": ".agents/skills",
+      "enabled": {
+        "user": true,
+        "project": true
+      },
+      "builtIn": true
+    },
+    "orion": {
+      "id": "orion",
       "userPath": "~/.agents/skills",
       "projectPath": ".agents/skills",
       "enabled": {
@@ -52,6 +62,10 @@ The user config also has a top-level `projects` array. `unity projects add <path
 ```json
 {
   "codex": {
+    "userPath": "~/.agents/skills",
+    "projectPath": ".agents/skills"
+  },
+  "orion": {
     "userPath": "~/.agents/skills",
     "projectPath": ".agents/skills"
   },

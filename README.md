@@ -1,6 +1,6 @@
 # Unity
 
-Unity keeps Agent Skills in one source-of-truth directory and mirrors them into the skill folders used by coding agents such as Codex, Claude Code, Cursor, OpenCode, etc.
+Unity keeps Agent Skills in one source-of-truth directory and mirrors them into the skill folders used by coding agents such as Codex, Orion, Claude Code, Cursor, OpenCode, etc.
 
 ## Install
 
@@ -128,17 +128,18 @@ unity watch --pull --foreground
 | Agent | User target | Project target |
 | --- | --- | --- |
 | Codex | `~/.agents/skills` | `.agents/skills` |
+| Orion | `~/.agents/skills` | `.agents/skills` |
 | Claude Code | `~/.claude/skills` | `.claude/skills` |
 | Cursor | `~/.cursor/skills` | `.cursor/skills` |
 | OpenCode | `~/.config/opencode/skills` | `.opencode/skills` |
 
-Cursor paths are included from the project requirements. Codex uses the Unity source directory directly: `.agents/skills` and `~/.agents/skills`.
+Cursor paths are included from the project requirements. Codex and Orion use the Unity source directory directly: `.agents/skills` and `~/.agents/skills`.
 
 ## Safety model
 
 Unity mirrors by copying directories, not by creating symlinks.
 
-Unity's push direction writes from `.agents/skills` into enabled agent targets. Codex already reads that source path, so Unity skips Codex as a copy target. The pull direction imports new skills from targets into `.agents/skills`; it skips source skills that already exist unless you use the explicit import workflow to handle a specific target.
+Unity's push direction writes from `.agents/skills` into enabled agent targets. Codex and Orion already read that source path, so Unity skips those targets as copy destinations. The pull direction imports new skills from targets into `.agents/skills`; it skips source skills that already exist unless you use the explicit import workflow to handle a specific target.
 
 Unity tracks every file it writes in `.agents/state.json` or `~/.agents/state.json`. On future syncs it only overwrites or removes files when the target still matches Unity's manifest.
 

@@ -8,6 +8,13 @@ export const BUILT_IN_TARGETS: Record<string, TargetConfig> = {
     enabled: { user: true, project: true },
     builtIn: true
   },
+  orion: {
+    id: "orion",
+    userPath: "~/.agents/skills",
+    projectPath: ".agents/skills",
+    enabled: { user: true, project: true },
+    builtIn: true
+  },
   claude: {
     id: "claude",
     userPath: "~/.claude/skills",

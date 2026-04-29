@@ -51,6 +51,7 @@ If the user already has skills in one agent, import them into Unity before synci
 ```bash
 unity import --from claude --scope user --fix-names
 unity import --from codex --scope user --fix-names
+unity import --from orion --scope user --fix-names
 unity import --from cursor --scope project --fix-names
 unity import --from opencode --scope project --fix-names
 ```
