@@ -6,12 +6,40 @@ import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, 
 import { configPath, expandScopes, resolveTargetPath, sourceDir } from "./paths.js";
 import { getStatus } from "./status.js";
 import { pruneTarget, pullScope, pushScope, syncScope } from "./sync.js";
-import type { Scope, ScopeInput, SyncResult, TargetConfig, UnityMessage } from "./types.js";
+import type { Scope, ScopeInput, SyncResult, TargetConfig, UnityConfig, UnityMessage } from "./types.js";
 import { watchGlobal, watchScopes } from "./watch.js";
 import { listValidSkills } from "./skills.js";
 import { ensureUnitySkill } from "./unity-skill.js";
 import { claimWatcher, getWatcherState, releaseWatcher, stopExistingWatcher } from "./watch-state.js";
 import { readLineWithEscape } from "./init-prompt.js";
+
+function targetsListUseColor(): boolean {
+  return Boolean(process.stdout.isTTY && !process.env.NO_COLOR);
+}
+
+function gray(text: string): string {
+  return targetsListUseColor() ? `\x1b[90m${text}\x1b[0m` : text;
+}
+
+function printTargetsListBlock(scope: Scope, config: UnityConfig): void {
+  const targets = Object.values(config.targets).sort((a, b) => a.id.localeCompare(b.id));
+  const enabledList = targets.filter((t) => t.enabled[scope]);
+  const disabledList = targets.filter((t) => !t.enabled[scope]);
+
+  console.log(`${scope}`);
+  console.log("    enabled");
+  for (const target of enabledList) {
+    const targetPath = resolveTargetPath(scope === "user" ? target.userPath : target.projectPath, scope);
+    const kind = target.builtIn ? "built-in" : "custom";
+    console.log(`        ${target.id} (${kind}) -> ${targetPath}`);
+  }
+  console.log(gray("    disabled"));
+  for (const target of disabledList) {
+    const targetPath = resolveTargetPath(scope === "user" ? target.userPath : target.projectPath, scope);
+    const kind = target.builtIn ? "built-in" : "custom";
+    console.log(gray(`        ${target.id} (${kind}) -> ${targetPath}`));
+  }
+}
 
 const program = new Command();
 
@@ -227,13 +255,7 @@ targets
   .action(async (options: { scope: ScopeInput }) => {
     for (const scope of expandScopes(options.scope)) {
       const config = await loadConfig(scope);
-      console.log(`${scope}`);
-      for (const target of Object.values(config.targets)) {
-        const targetPath = resolveTargetPath(scope === "user" ? target.userPath : target.projectPath, scope);
-        const state = target.enabled[scope] ? "enabled" : "disabled";
-        const kind = target.builtIn ? "built-in" : "custom";
-        console.log(`  ${target.id} (${kind}, ${state}) -> ${targetPath}`);
-      }
+      printTargetsListBlock(scope, config);
     }
   });
 
