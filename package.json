@@ -1,6 +1,6 @@
 {
   "name": "@nicolasakf/unity",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Mirror one source-of-truth Agent Skills directory into Cursor, Claude Code, Codex, OpenCode, and custom agent skill directories.",
   "type": "module",
   "bin": {
