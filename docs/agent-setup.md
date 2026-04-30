@@ -4,16 +4,8 @@ This guide is written for coding agents setting up Unity for a user.
 
 ## Install
 
-Prefer the package manager already used on the machine:
-
 ```bash
 npm install -g @nicolasakf/unity
-```
-
-or:
-
-```bash
-bun add -g @nicolasakf/unity
 ```
 
 Verify:
@@ -32,7 +24,7 @@ unity init
 
 `init` creates a user-level `unity-skill` from Unity's README and pushes it to enabled user targets. This helps coding agents understand the user's Unity setup.
 
-On **first init** in an interactive terminal, Unity first asks which built-in providers to enable (comma-separated ids). Then it optionally registers **project roots** for the global watcher: type each path and press Enter to add it; press Enter on an empty line when done, or press **Escape** to stop adding paths. Each registration creates that project’s Unity scope (including `.agents` under that repo).
+On **first init** in an interactive terminal, Unity first asks which built-in targets to enable (comma-separated ids). Then it optionally registers **project roots** for the global watcher: type each path and press Enter to add it; press Enter on an empty line when done, or press **Escape** to stop adding paths. Each registration creates that project’s Unity scope (including `.agents` under that repo).
 
 **Agents cannot use interactive stdin.** Initialize without prompts so the command exits immediately:
 
@@ -46,25 +38,25 @@ Or use CLI flags instead of env vars:
 unity init --non-interactive --targets codex,cursor --projects "$HOME/workbench/my-app"
 ```
 
-With `--non-interactive` and no `--targets` / no `UNITY_INIT_TARGETS`, all built-in user targets stay **disabled** (same as pressing Enter alone at the provider prompt). With no projects given, none are registered.
+With `--non-interactive` and no `--targets` / no `UNITY_INIT_TARGETS`, all built-in user targets stay **disabled** (same as pressing Enter alone at the targets prompt). With no projects given, none are registered.
 
-## Import existing skills
+## Pull Existing Skills
 
-If the user already has skills in one agent, import them into Unity before syncing:
+If the user already has skills in one agent, pull them into Unity before syncing:
 
 ```bash
-unity import --from claude --scope user --fix-names
-unity import --from codex --scope user --fix-names
-unity import --from orion --scope user --fix-names
-unity import --from cursor --scope project --fix-names
-unity import --from opencode --scope project --fix-names
+unity pull --from claude --scope user --fix-names
+unity pull --from codex --scope user --fix-names
+unity pull --from orion --scope user --fix-names
+unity pull --from cursor --scope project --fix-names
+unity pull --from opencode --scope project --fix-names
 ```
 
-You can also import from a path:
+You can also pull from a path:
 
 ```bash
-unity import --from ~/.claude/skills --scope user
-unity import --from .cursor/skills --scope project
+unity pull --from ~/.claude/skills --scope user
+unity pull --from .cursor/skills --scope project
 ```
 
 To discover new skills across all enabled targets, pull into Unity:
@@ -89,7 +81,13 @@ unity push --scope all --dry-run
 
 If Unity reports conflicts, do not use `--force` without user approval. Conflicts mean a target skill exists or changed outside Unity.
 
-`unity sync` is still available as the older name for `unity push`.
+## Sync
+
+Sync pulls new target skills into Unity first, then pushes Unity's source skills to enabled agent directories:
+
+```bash
+unity sync --scope all
+```
 
 ## Background process
 

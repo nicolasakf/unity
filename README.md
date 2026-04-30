@@ -2,23 +2,17 @@
 
 Unity keeps Agent Skills in one source-of-truth directory and mirrors them into the skill folders used by coding agents such as Codex, Orion, Claude Code, Cursor, OpenCode, etc.
 
-## Install
+## Install Unity
 
 ```bash
 npm install -g @nicolasakf/unity
 unity --help
 ```
 
-```bash
-bun add -g @nicolasakf/unity
-unity --help
-```
-
-For one-off use:
+One-off without a global install:
 
 ```bash
 npx @nicolasakf/unity sync
-bunx @nicolasakf/unity sync
 ```
 
 ## How it works
@@ -30,24 +24,7 @@ Unity has two source directories:
 | User | `~/.agents/skills` |
 | Project | `<repo>/.agents/skills` |
 
-Each skill is a directory that contains `SKILL.md`:
-
-```text
-~/.agents/skills/
-└── code-review/
-    └── SKILL.md
-```
-
-`SKILL.md` must start with Agent Skills frontmatter:
-
-```md
----
-name: code-review
-description: Review code changes for bugs, regressions, and missing tests.
----
-
-Use this skill when reviewing a pull request or local diff.
-```
+Unity uses these as the source of truth for the skills. You or your agent can edit the skills in the source directory or in the agent mirror directory. Unity will guarantee that all linked directories (targets) are kept in sync at each scope level.
 
 ## Quickstart
 
@@ -61,7 +38,7 @@ unity init
 
 On **first init** in an interactive terminal, Unity prompts for two things:
 
-1. **Providers** — enter comma-separated built-in ids (codex, claude, cursor, …), or Enter to disable all. That choice is stored for **both** user- and project-scoped sync; new project configs copy it from your user config so you do not get every agent enabled at the repo level by default.
+1. **Targets** — enter comma-separated built-in ids (codex, claude, cursor, …), or Enter to disable all. That choice is stored for **both** user- and project-scoped sync; new project configs copy it from your user config so you do not get every agent enabled at the repo level by default.
 2. **Projects** (optional) — type each repository root, then Enter to register it with `unity watch`; press Enter on an empty line when you are finished, or press **Escape** to stop adding paths.
 
 Coding agents or scripts cannot use interactive prompts. Run init without prompts like this:

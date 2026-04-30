@@ -16,7 +16,7 @@ For CI, scripting, and coding agents that cannot read interactive stdin, pass `-
 | Flag / env | Role |
 | --- | --- |
 | `--non-interactive` | Skip first-run prompts (targets and optional project roots) |
-| `--targets <ids>` | Comma-separated built-in provider ids to enable for **user** scope |
+| `--targets <ids>` | Comma-separated built-in target ids to enable for **user** scope |
 | `--projects <paths>` | Comma-separated repository roots (same effect as repeating `unity projects add`) |
 | `UNITY_INIT_NON_INTERACTIVE=1` | Force non-interactive mode even when a tty is detected |
 | `UNITY_INIT_TARGETS` | Same as `--targets` when no CLI flag |
