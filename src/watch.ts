@@ -89,14 +89,17 @@ async function watchTargetSet(
 
   onMessage({ level: "info", message: `Watching ${paths.join(", ")}` });
 
-  await new Promise<void>((resolve) => {
-    const shutdown = async () => {
-      await watcher.close();
-      resolve();
-    };
-    process.once("SIGINT", shutdown);
-    process.once("SIGTERM", shutdown);
-  });
+  let resolveShutdown!: () => void;
+  const shutdownPromise = new Promise<void>((resolve) => { resolveShutdown = resolve; });
+  const shutdown = async () => {
+    await watcher.close();
+    resolveShutdown();
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+
+  await execute();
+  await shutdownPromise;
 
   async function execute(): Promise<void> {
     if (running) {
