@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { enabledTargets, ensureScope, loadConfig, saveConfig } from "../src/config.js";
 import { resolveTargetPath, sourceDir } from "../src/paths.js";
-import { importSkills, pruneTarget, pullScope, syncScope } from "../src/sync.js";
+import { pruneTarget, pullScope, pushScope, syncScope } from "../src/sync.js";
 import { createTempProject, exists, readText, writeSkill } from "./helpers.js";
 
 describe("sync", () => {
@@ -12,7 +12,7 @@ describe("sync", () => {
     await ensureScope("project", root);
     await writeSkill(sourceDir("project", root), "code-review");
 
-    const result = await syncScope("project", { cwd: root });
+    const result = await pushScope("project", { cwd: root });
 
     await expect(expectedCopiedTargets("project", root)).resolves.toBe(result.copied);
     await expect(exists(path.join(root, ".agents", "skills", "code-review", "SKILL.md"))).resolves.toBe(true);
@@ -29,7 +29,7 @@ describe("sync", () => {
     await ensureScope("user", root);
     await writeSkill(sourceDir("user", root), "release-notes");
 
-    const result = await syncScope("user", { cwd: root });
+    const result = await pushScope("user", { cwd: root });
 
     await expect(expectedCopiedTargets("user", root)).resolves.toBe(result.copied);
     await expect(exists(path.join(home, ".agents", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
@@ -46,10 +46,10 @@ describe("sync", () => {
     const { root } = await createTempProject();
     await ensureScope("project", root);
     const skillDir = await writeSkill(sourceDir("project", root), "temporary-skill");
-    await syncScope("project", { cwd: root });
+    await pushScope("project", { cwd: root });
 
     await fs.rm(skillDir, { recursive: true });
-    const result = await syncScope("project", { cwd: root });
+    const result = await pushScope("project", { cwd: root });
 
     await expect(expectedCopiedTargets("project", root)).resolves.toBe(result.removed);
     await expect(exists(path.join(root, ".agents", "skills", "temporary-skill"))).resolves.toBe(false);
@@ -63,7 +63,7 @@ describe("sync", () => {
     await saveConfig("project", config, root);
     await writeSkill(sourceDir("project", root), "cursor-only");
 
-    const result = await syncScope("project", { cwd: root });
+    const result = await pushScope("project", { cwd: root });
 
     await expect(expectedCopiedTargets("project", root, ["claude"])).resolves.toBe(result.copied);
     await expect(exists(path.join(root, ".claude", "skills", "cursor-only"))).resolves.toBe(false);
@@ -77,11 +77,11 @@ describe("sync", () => {
     await fs.mkdir(targetDir, { recursive: true });
     await fs.writeFile(path.join(targetDir, "SKILL.md"), "unmanaged", "utf8");
 
-    const result = await syncScope("project", { cwd: root });
+    const result = await pushScope("project", { cwd: root });
     expect(result.skipped).toBe(1);
     await expect(readText(path.join(targetDir, "SKILL.md"))).resolves.toBe("unmanaged");
 
-    const forced = await syncScope("project", { cwd: root, force: true });
+    const forced = await pushScope("project", { cwd: root, force: true });
     expect(forced.copied).toBe(1);
     await expect(readText(path.join(targetDir, "SKILL.md"))).resolves.toContain("Source version.");
   });
@@ -90,7 +90,7 @@ describe("sync", () => {
     const { root } = await createTempProject();
     await writeSkill(sourceDir("project", root), "preview-skill");
 
-    const result = await syncScope("project", { cwd: root, dryRun: true });
+    const result = await pushScope("project", { cwd: root, dryRun: true });
 
     await expect(expectedCopiedTargets("project", root)).resolves.toBe(result.copied);
     await expect(exists(path.join(root, ".claude", "skills", "preview-skill"))).resolves.toBe(false);
@@ -101,7 +101,7 @@ describe("sync", () => {
     const { root } = await createTempProject();
     await ensureScope("project", root);
     await writeSkill(sourceDir("project", root), "managed-skill");
-    await syncScope("project", { cwd: root });
+    await pushScope("project", { cwd: root });
 
     const config = await loadConfig("project", root);
     config.targets.claude.enabled.project = false;
@@ -113,15 +113,15 @@ describe("sync", () => {
     await expect(exists(path.join(root, ".agents", "skills", "managed-skill"))).resolves.toBe(true);
   });
 
-  it("imports skills from a configured target into the Unity source", async () => {
+  it("pulls skills from a configured target into the Unity source", async () => {
     const { root } = await createTempProject();
     await ensureScope("project", root);
-    await writeSkill(path.join(root, ".claude", "skills"), "imported-skill");
+    await writeSkill(path.join(root, ".claude", "skills"), "pulled-skill");
 
-    const result = await importSkills("claude", "project", root);
+    const result = await pullScope("project", { cwd: root, from: "claude" });
 
     expect(result.copied).toBe(1);
-    await expect(exists(path.join(root, ".agents", "skills", "imported-skill", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(root, ".agents", "skills", "pulled-skill", "SKILL.md"))).resolves.toBe(true);
   });
 
   it("pulls new skills from enabled targets into the Unity source", async () => {
@@ -137,6 +137,20 @@ describe("sync", () => {
     await expect(exists(path.join(root, ".agents", "skills", "cursor-skill", "SKILL.md"))).resolves.toBe(true);
   });
 
+  it("sync pulls new target skills before pushing Unity source skills", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    await writeSkill(path.join(root, ".claude", "skills"), "claude-skill");
+    await writeSkill(sourceDir("project", root), "source-skill");
+
+    const result = await syncScope("project", { cwd: root });
+
+    expect(result.copied).toBeGreaterThanOrEqual(2);
+    await expect(exists(path.join(root, ".agents", "skills", "claude-skill", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(root, ".cursor", "skills", "claude-skill", "SKILL.md"))).resolves.toBe(true);
+    await expect(exists(path.join(root, ".claude", "skills", "source-skill", "SKILL.md"))).resolves.toBe(true);
+  });
+
   it("pull skips target skills that already exist in the Unity source", async () => {
     const { root } = await createTempProject();
     await ensureScope("project", root);
@@ -150,7 +164,7 @@ describe("sync", () => {
     await expect(readText(path.join(root, ".agents", "skills", "shared-skill", "SKILL.md"))).resolves.toContain("Source version.");
   });
 
-  it("repairs folder/name mismatches during import when requested", async () => {
+  it("repairs folder/name mismatches during pull when requested", async () => {
     const { root } = await createTempProject();
     await ensureScope("project", root);
     const skillDir = path.join(root, ".cursor", "skills", "create-skill-local");
@@ -161,11 +175,11 @@ describe("sync", () => {
       "utf8"
     );
 
-    const result = await importSkills("cursor", "project", { cwd: root, fixNames: true });
+    const result = await pullScope("project", { cwd: root, from: "cursor", fixNames: true });
 
     expect(result.copied).toBe(1);
-    const imported = await readText(path.join(root, ".agents", "skills", "create-skill-local", "SKILL.md"));
-    expect(imported).toContain("name: create-skill-local");
+    const pulled = await readText(path.join(root, ".agents", "skills", "create-skill-local", "SKILL.md"));
+    expect(pulled).toContain("name: create-skill-local");
   });
 
   it("does not repair folder/name mismatches unless requested", async () => {
@@ -179,7 +193,7 @@ describe("sync", () => {
       "utf8"
     );
 
-    const result = await importSkills("cursor", "project", root);
+    const result = await pullScope("project", { cwd: root, from: "cursor" });
 
     expect(result.copied).toBe(0);
     expect(result.skipped).toBe(1);
@@ -191,7 +205,7 @@ describe("sync", () => {
     await writeSkill(sourceDir("project", root), "locked-skill");
     await fs.writeFile(path.join(root, ".agents", "sync.lock"), "locked", "utf8");
 
-    await expect(syncScope("project", { cwd: root })).rejects.toThrow("Another Unity operation");
+    await expect(pushScope("project", { cwd: root })).rejects.toThrow("Another Unity operation");
   });
 
   it("breaks a stale lock whose recorded pid is no longer alive", async () => {
@@ -206,7 +220,7 @@ describe("sync", () => {
       "utf8"
     );
 
-    const result = await syncScope("project", { cwd: root });
+    const result = await pushScope("project", { cwd: root });
     expect(result.copied).toBeGreaterThan(0);
   });
 
@@ -219,7 +233,7 @@ describe("sync", () => {
     await fs.mkdir(path.join(skillDir, ".git"), { recursive: true });
     await fs.writeFile(path.join(skillDir, ".git", "HEAD"), "ref", "utf8");
 
-    await syncScope("project", { cwd: root });
+    await pushScope("project", { cwd: root });
 
     const target = path.join(root, ".claude", "skills", "noisy-skill");
     await expect(exists(path.join(target, "SKILL.md"))).resolves.toBe(true);
@@ -236,7 +250,7 @@ describe("sync", () => {
     await fs.writeFile(path.join(outsideDir, "secret.txt"), "secret", "utf8");
     await fs.symlink(outsideDir, path.join(skillDir, "linked"), "dir");
 
-    await syncScope("project", { cwd: root });
+    await pushScope("project", { cwd: root });
 
     const target = path.join(root, ".claude", "skills", "linked-content");
     await expect(exists(path.join(target, "SKILL.md"))).resolves.toBe(true);
@@ -254,7 +268,7 @@ describe("sync", () => {
     await fs.mkdir(targetParent, { recursive: true });
     await fs.symlink(elsewhere, path.join(targetParent, "linked-skill"), "dir");
 
-    const result = await syncScope("project", { cwd: root });
+    const result = await pushScope("project", { cwd: root });
     expect(result.skipped).toBeGreaterThan(0);
     const stat = await fs.lstat(path.join(targetParent, "linked-skill"));
     expect(stat.isSymbolicLink()).toBe(true);

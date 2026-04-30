@@ -14,21 +14,32 @@ export type SyncOptions = {
   dryRun?: boolean;
 };
 
-export type ImportOptions = {
+export type PullOptions = {
   cwd?: string;
+  from?: string;
   fixNames?: boolean;
   dryRun?: boolean;
 };
 
 export async function syncScope(scope: Scope, options: SyncOptions = {}): Promise<SyncResult> {
-  const cwd = options.cwd ?? process.cwd();
-  if (options.dryRun) return syncScopeUnlocked(scope, options);
+  const pullResult = await pullScope(scope, options);
+  const pushResult = await pushScope(scope, options);
 
-  await ensureScope(scope, cwd);
-  return withScopeLock(scope, cwd, () => syncScopeUnlocked(scope, options));
+  return combineResults(scope, [
+    { label: "pull", result: pullResult },
+    { label: "push", result: pushResult }
+  ]);
 }
 
-async function syncScopeUnlocked(scope: Scope, options: SyncOptions = {}): Promise<SyncResult> {
+export async function pushScope(scope: Scope, options: SyncOptions = {}): Promise<SyncResult> {
+  const cwd = options.cwd ?? process.cwd();
+  if (options.dryRun) return pushScopeUnlocked(scope, options);
+
+  await ensureScope(scope, cwd);
+  return withScopeLock(scope, cwd, () => pushScopeUnlocked(scope, options));
+}
+
+async function pushScopeUnlocked(scope: Scope, options: SyncOptions = {}): Promise<SyncResult> {
   const cwd = options.cwd ?? process.cwd();
   const force = options.force ?? false;
   const dryRun = options.dryRun ?? false;
@@ -195,18 +206,7 @@ async function pruneTargetUnlocked(
   return result;
 }
 
-export async function importSkills(from: string, scope: Scope, cwdOrOptions: string | ImportOptions = process.cwd()): Promise<SyncResult> {
-  const options = typeof cwdOrOptions === "string" ? { cwd: cwdOrOptions } : cwdOrOptions;
-  const cwd = options.cwd ?? process.cwd();
-  if (!options.dryRun) {
-    await ensureScope(scope, cwd);
-    return withScopeLock(scope, cwd, () => importSkillsUnlocked(from, scope, options));
-  }
-
-  return importSkillsUnlocked(from, scope, options);
-}
-
-export async function pullScope(scope: Scope, options: ImportOptions = {}): Promise<SyncResult> {
+export async function pullScope(scope: Scope, options: PullOptions = {}): Promise<SyncResult> {
   const cwd = options.cwd ?? process.cwd();
   if (!options.dryRun) {
     await ensureScope(scope, cwd);
@@ -216,10 +216,14 @@ export async function pullScope(scope: Scope, options: ImportOptions = {}): Prom
   return pullScopeUnlocked(scope, options);
 }
 
-async function pullScopeUnlocked(scope: Scope, options: ImportOptions = {}): Promise<SyncResult> {
+async function pullScopeUnlocked(scope: Scope, options: PullOptions = {}): Promise<SyncResult> {
   const cwd = options.cwd ?? process.cwd();
   const config = await loadConfig(scope, cwd);
   const result: SyncResult = { scope, copied: 0, removed: 0, skipped: 0, errors: 0, messages: [] };
+
+  if (options.from) {
+    return pullFromSource(options.from, scope, options);
+  }
 
   for (const target of enabledTargets(config, scope)) {
     const sourcePath = resolveTargetPath(pathForScope(target, scope), scope, cwd);
@@ -233,7 +237,7 @@ async function pullScopeUnlocked(scope: Scope, options: ImportOptions = {}): Pro
       continue;
     }
 
-    const pulled = await importSkillsUnlocked(target.id, scope, options);
+    const pulled = await pullFromSource(target.id, scope, options);
     result.copied += pulled.copied;
     result.removed += pulled.removed;
     result.skipped += pulled.skipped;
@@ -246,7 +250,7 @@ async function pullScopeUnlocked(scope: Scope, options: ImportOptions = {}): Pro
   return result;
 }
 
-async function importSkillsUnlocked(from: string, scope: Scope, options: ImportOptions = {}): Promise<SyncResult> {
+async function pullFromSource(from: string, scope: Scope, options: PullOptions = {}): Promise<SyncResult> {
   const cwd = options.cwd ?? process.cwd();
   const fixNames = options.fixNames ?? false;
   const dryRun = options.dryRun ?? false;
@@ -265,7 +269,7 @@ async function importSkillsUnlocked(from: string, scope: Scope, options: ImportO
 
   if (!(await pathExists(sourcePath))) {
     result.errors += 1;
-    messages.push({ level: "error", message: `Import source does not exist: ${sourcePath}` });
+    messages.push({ level: "error", message: `Pull source does not exist: ${sourcePath}` });
     return result;
   }
 
@@ -285,13 +289,13 @@ async function importSkillsUnlocked(from: string, scope: Scope, options: ImportO
           if (dryRun) {
             messages.push({
               level: "info",
-              message: `Would import ${repair.fixedName} with name fixed from "${repair.currentName}"`
+              message: `Would pull ${repair.fixedName} with name fixed from "${repair.currentName}"`
             });
           } else {
             await copyDirectoryWithSkillName(repair.directory, targetDir, repair.fixedName);
             messages.push({
               level: "info",
-              message: `Imported ${repair.fixedName} with name fixed from "${repair.currentName}"`
+              message: `Pulled ${repair.fixedName} with name fixed from "${repair.currentName}"`
             });
           }
           result.copied += 1;
@@ -300,7 +304,7 @@ async function importSkillsUnlocked(from: string, scope: Scope, options: ImportO
       }
 
       result.skipped += 1;
-      messages.push({ level: "warning", message: `Skipped invalid import at ${validation.directory}: ${validation.reason}` });
+      messages.push({ level: "warning", message: `Skipped invalid pull at ${validation.directory}: ${validation.reason}` });
     }
   }
 
@@ -312,13 +316,30 @@ async function importSkillsUnlocked(from: string, scope: Scope, options: ImportO
       continue;
     }
     if (dryRun) {
-      messages.push({ level: "info", message: `Would import ${skill.name} into ${destination}` });
+      messages.push({ level: "info", message: `Would pull ${skill.name} into ${destination}` });
     } else {
       await copyDirectory(skill.directory, targetDir);
     }
     result.copied += 1;
   }
 
+  return result;
+}
+
+function combineResults(
+  scope: Scope,
+  items: { label: string; result: SyncResult }[]
+): SyncResult {
+  const result: SyncResult = { scope, copied: 0, removed: 0, skipped: 0, errors: 0, messages: [] };
+  for (const item of items) {
+    result.copied += item.result.copied;
+    result.removed += item.result.removed;
+    result.skipped += item.result.skipped;
+    result.errors += item.result.errors;
+    for (const message of item.result.messages) {
+      result.messages.push({ ...message, message: `${item.label}: ${message.message}` });
+    }
+  }
   return result;
 }
 

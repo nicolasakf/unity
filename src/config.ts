@@ -27,7 +27,7 @@ export async function ensureScope(scope: Scope, cwd = process.cwd()): Promise<Un
   const configExisted = await configFileExists(cfgPath);
   const config = await loadConfig(scope, cwd);
   if (scope === "project" && !configExisted) {
-    copyProviderSelectionFromUserToProject(await loadConfig("user", cwd), config);
+    copyTargetSelectionFromUserToProject(await loadConfig("user", cwd), config);
   }
   await saveConfig(scope, config, cwd);
   return config;
@@ -43,10 +43,10 @@ async function configFileExists(filePath: string): Promise<boolean> {
 }
 
 /**
- * Use the user's provider selection (`enabled.user` in ~/.agents/config.json) for both scopes
+ * Use the user's target selection (`enabled.user` in ~/.agents/config.json) for both scopes
  * in a new repo config so project-scope sync mirrors the targets chosen during init / user config.
  */
-export function copyProviderSelectionFromUserToProject(userConfig: UnityConfig, projectConfig: UnityConfig): void {
+export function copyTargetSelectionFromUserToProject(userConfig: UnityConfig, projectConfig: UnityConfig): void {
   for (const [id, source] of Object.entries(userConfig.targets)) {
     const on = source.enabled?.user ?? true;
     if (!projectConfig.targets[id]) {

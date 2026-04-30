@@ -2,7 +2,7 @@ import chokidar from "chokidar";
 import path from "node:path";
 import { enabledTargets, listRegisteredProjects, loadConfig } from "./config.js";
 import { configPath, isPathWithin, pathsEqual, resolveTargetPath, sourceDir } from "./paths.js";
-import { pullScope, syncScope } from "./sync.js";
+import { pullScope, pushScope } from "./sync.js";
 import type { Scope, TargetConfig, UnityMessage } from "./types.js";
 
 export type WatchOptions = {
@@ -132,7 +132,7 @@ async function watchTargetSet(
             onMessage({ level: "info", message: `${targetLabel(target)}: skipped pull because source deletion was detected` });
           }
 
-          const result = await syncScope(target.scope, { cwd: target.cwd });
+          const result = await pushScope(target.scope, { cwd: target.cwd });
           onMessage({
             level: "info",
             message: `${targetLabel(target)}: copied ${result.copied}, removed ${result.removed}, skipped ${result.skipped}`
@@ -182,4 +182,3 @@ function targetKey(target: WatchTarget): string {
 function targetLabel(target: WatchTarget): string {
   return target.scope === "user" ? "user" : `project ${path.resolve(target.cwd)}`;
 }
-

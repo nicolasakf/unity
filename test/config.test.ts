@@ -47,7 +47,7 @@ describe("configuration and paths", () => {
     expect(status.invalidSkillDetails).toEqual([]);
   });
 
-  it("new project configs inherit provider selection from user config", async () => {
+  it("new project configs inherit target selection from user config", async () => {
     const { root } = await createTempProject();
 
     await ensureScope("user", root);

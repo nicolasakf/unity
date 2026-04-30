@@ -5,7 +5,7 @@ import { Command, InvalidArgumentError } from "commander";
 import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, removeRegisteredProject, saveConfig } from "./config.js";
 import { configPath, expandScopes, resolveTargetPath, sourceDir } from "./paths.js";
 import { getStatus } from "./status.js";
-import { importSkills, pruneTarget, pullScope, syncScope } from "./sync.js";
+import { pruneTarget, pullScope, pushScope, syncScope } from "./sync.js";
 import type { Scope, ScopeInput, SyncResult, TargetConfig, UnityMessage } from "./types.js";
 import { watchGlobal, watchScopes } from "./watch.js";
 import { listValidSkills } from "./skills.js";
@@ -32,7 +32,7 @@ program
   .command("init")
   .description("Create Unity user source, config, and state directories.")
   .option("--non-interactive", "skip prompts (for scripts and agents); use --targets/--projects or UNITY_INIT_* env")
-  .option("--targets <ids>", "comma-separated built-in provider ids to enable for user scope (non-interactive)")
+  .option("--targets <ids>", "comma-separated built-in target ids to enable for user scope (non-interactive)")
   .option("--projects <paths>", "comma-separated project roots to register for the watcher (non-interactive)")
   .action(
     async (options: {
@@ -53,18 +53,18 @@ program
         level: "info",
         message: `${skillState === "created" ? "Created" : "Found"} user unity-skill at ${sourceDir("user")}/unity-skill`
       });
-      printResult(await syncScope("user"));
+      printResult(await pushScope("user"));
     }
   );
 
 program
   .command("sync")
-  .description("Mirror Unity skills into enabled target directories.")
+  .description("Pull new target skills into Unity, then push Unity skills into enabled target directories.")
   .option("--scope <scope>", "user, project, or all", parseScope, "all")
-  .option("--force", "overwrite conflicting target skills", false)
-  .option("--dry-run", "preview changes without writing target directories or state", false)
+  .option("--force", "overwrite conflicting target skills during push", false)
+  .option("--dry-run", "preview changes without writing Unity source files, target directories, or state", false)
   .action(async (options: { scope: ScopeInput; force: boolean; dryRun: boolean }) => {
-    await pushScopes(options);
+    await syncScopes(options);
   });
 
 program
@@ -79,14 +79,16 @@ program
 
 program
   .command("pull")
-  .description("Pull new skills from enabled target directories into the Unity source.")
+  .description("Pull new skills from enabled target directories, a target id, or a path into the Unity source.")
+  .option("--from <agent-or-path>", "built-in/custom target id or directory path")
   .option("--scope <scope>", "user, project, or all", parseScope, "all")
   .option("--fix-names", "pull folder/name mismatches by rewriting copied SKILL.md names to match folders", false)
   .option("--dry-run", "preview pulls without writing Unity source files", false)
-  .action(async (options: { scope: ScopeInput; fixNames: boolean; dryRun: boolean }) => {
+  .action(async (options: { from?: string; scope: ScopeInput; fixNames: boolean; dryRun: boolean }) => {
     for (const scope of expandScopes(options.scope)) {
       printResult(
         await pullScope(scope, {
+          from: options.from,
           fixNames: options.fixNames,
           dryRun: options.dryRun
         }),
@@ -143,6 +145,21 @@ program
     console.log(`fix names: ${state.fixNames}`);
     console.log(`cwd: ${state.cwd}`);
     console.log(`started: ${state.startedAt}`);
+  });
+
+program
+  .command("stop")
+  .description("Stop the Unity watcher if one is registered in ~/.agents/watch.json.")
+  .action(async () => {
+    const state = await getWatcherState();
+    if (!state) {
+      console.log("No Unity watcher is running.");
+      return;
+    }
+    const pid = state.pid;
+    await stopExistingWatcher();
+    await getWatcherState();
+    console.log(`Stopped Unity watcher (pid ${pid}).`);
   });
 
 program
@@ -310,25 +327,6 @@ projects
     }
   });
 
-program
-  .command("import")
-  .description("Import existing skills from an agent target or arbitrary path into Unity source.")
-  .requiredOption("--from <agent-or-path>", "built-in/custom target id or directory path")
-  .option("--scope <scope>", "user, project, or all", parseScope, "all")
-  .option("--fix-names", "import folder/name mismatches by rewriting copied SKILL.md names to match folders", false)
-  .option("--dry-run", "preview imports without writing Unity source files", false)
-  .action(async (options: { from: string; scope: ScopeInput; fixNames: boolean; dryRun: boolean }) => {
-    for (const scope of expandScopes(options.scope)) {
-      printResult(
-        await importSkills(options.from, scope, {
-          fixNames: options.fixNames,
-          dryRun: options.dryRun
-        }),
-        options.dryRun
-      );
-    }
-  });
-
 program.exitOverride();
 
 try {
@@ -381,7 +379,7 @@ async function configureTargets(scope: Scope, mode: InitMode): Promise<void> {
     const enabled = new Set(parseCommaList(mode.targetsCsv).map((id) => id.toLowerCase()));
     const known = new Set(targets.map((target) => target.id));
     for (const id of enabled) {
-      if (!known.has(id)) console.log(`warning: unknown provider "${id}"`);
+      if (!known.has(id)) console.log(`warning: unknown target "${id}"`);
     }
     for (const target of targets) {
       const on = enabled.has(target.id);
@@ -395,16 +393,16 @@ async function configureTargets(scope: Scope, mode: InitMode): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   console.log("");
-  console.log("Choose providers to mirror into coding agents at user scope and registered project repos.");
+  console.log("Choose targets to mirror into coding agents at user scope and registered project repos.");
   console.log(`Available: ${targets.map((target) => target.id).join(", ")}`);
-  console.log("Enter provider ids separated by commas. Press Enter for none.");
+  console.log("Enter target ids separated by commas. Press Enter for none.");
 
   try {
-    const answer = await rl.question("Enable providers: ");
+    const answer = await rl.question("Enable targets: ");
     const enabled = new Set(answer.split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean));
     const known = new Set(targets.map((target) => target.id));
     for (const id of enabled) {
-      if (!known.has(id)) console.log(`warning: unknown provider "${id}"`);
+      if (!known.has(id)) console.log(`warning: unknown target "${id}"`);
     }
     for (const target of targets) {
       const on = enabled.has(target.id);
@@ -509,6 +507,12 @@ async function waitForBackgroundWatcher(pid: number | undefined): Promise<void> 
 }
 
 async function pushScopes(options: { scope: ScopeInput; force: boolean; dryRun: boolean }): Promise<void> {
+  for (const scope of expandScopes(options.scope)) {
+    printResult(await pushScope(scope, { force: options.force, dryRun: options.dryRun }), options.dryRun);
+  }
+}
+
+async function syncScopes(options: { scope: ScopeInput; force: boolean; dryRun: boolean }): Promise<void> {
   for (const scope of expandScopes(options.scope)) {
     printResult(await syncScope(scope, { force: options.force, dryRun: options.dryRun }), options.dryRun);
   }
