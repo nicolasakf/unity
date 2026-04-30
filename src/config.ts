@@ -12,8 +12,33 @@ export function defaultConfig(): UnityConfig {
   };
 }
 
+/**
+ * When project scope has no config file yet (no `.agents/config.json`), avoid treating
+ * that as "all built-in targets enabled" — there is no project-level Unity setup.
+ */
+function projectConfigFallback(): UnityConfig {
+  const base = defaultConfig();
+  const targets: Record<string, TargetConfig> = {};
+  for (const [id, target] of Object.entries(base.targets)) {
+    targets[id] = { ...target, enabled: { user: false, project: false } };
+  }
+  return { version: 1, targets, projects: [] };
+}
+
+async function configFileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function loadConfig(scope: Scope, cwd = process.cwd()): Promise<UnityConfig> {
-  const loaded = await readJsonFile<UnityConfig>(configPath(scope, cwd), defaultConfig());
+  const cfgPath = configPath(scope, cwd);
+  const fallback =
+    scope === "project" && !(await configFileExists(cfgPath)) ? projectConfigFallback() : defaultConfig();
+  const loaded = await readJsonFile<UnityConfig>(cfgPath, fallback);
   return normalizeConfig(loaded);
 }
 
@@ -31,15 +56,6 @@ export async function ensureScope(scope: Scope, cwd = process.cwd()): Promise<Un
   }
   await saveConfig(scope, config, cwd);
   return config;
-}
-
-async function configFileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
