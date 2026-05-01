@@ -3,8 +3,6 @@ dist/
 coverage/
 .DS_Store
 *.log
-.agent/state.json
-.agent/sync.lock
 .agents/state.json
+.agents/config.json
 .agents/sync.lock
-.agents/watch.json
