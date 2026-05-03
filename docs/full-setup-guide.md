@@ -1,6 +1,6 @@
-# Agent Setup Guide
+# Full Setup Guide
 
-This guide is written for coding agents setting up Unity for a user.
+This is the full setup guide for Unity.
 
 ## Install
 
