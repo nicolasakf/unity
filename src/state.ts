@@ -10,13 +10,31 @@ export async function loadState(scope: Scope, cwd = process.cwd()): Promise<Unit
   const state = await readJsonFile<UnityState>(statePath(scope, cwd), emptyState());
   return {
     version: 1,
-    targets: state.targets ?? {}
+    targets: Object.fromEntries(
+      Object.entries(state.targets ?? {}).map(([id, target]) => [
+        id,
+        {
+          targetPath: target.targetPath,
+          skills: target.skills ?? {},
+          rules: target.rules ?? {}
+        }
+      ])
+    )
   };
 }
 
 export async function saveState(scope: Scope, state: UnityState, cwd = process.cwd()): Promise<void> {
   await writeJsonFile(statePath(scope, cwd), {
     version: 1,
-    targets: state.targets ?? {}
+    targets: Object.fromEntries(
+      Object.entries(state.targets ?? {}).map(([id, target]) => [
+        id,
+        {
+          targetPath: target.targetPath,
+          skills: target.skills ?? {},
+          rules: target.rules ?? {}
+        }
+      ])
+    )
   });
 }

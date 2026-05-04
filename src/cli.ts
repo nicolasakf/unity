@@ -3,7 +3,8 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError } from "commander";
 import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, removeRegisteredProject, saveConfig } from "./config.js";
-import { configPath, expandScopes, resolveTargetPath, sourceDir } from "./paths.js";
+import { buildEnvPushPlan, pushEnvFiles } from "./env.js";
+import { configPath, expandScopes, resolveTargetPath, rulesSourceDir, sourceDir } from "./paths.js";
 import { getStatus } from "./status.js";
 import { pruneTarget, pullScope, pushScope, syncScope } from "./sync.js";
 import type { Scope, ScopeInput, SyncResult, TargetConfig, UnityConfig, UnityMessage } from "./types.js";
@@ -125,6 +126,46 @@ program
     }
   });
 
+const env = program.command("env").description("Manage repository environment files.");
+
+env
+  .command("push")
+  .description("Push root .env files from the current repo to configured target worktrees.")
+  .option("--to <ids>", "comma-separated target ids to receive env files")
+  .option("--dry-run", "preview destination paths without writing files", false)
+  .option("-y, --yes", "skip the confirmation prompt", false)
+  .action(async (options: { to?: string; dryRun: boolean; yes: boolean }) => {
+    const plan = await buildEnvPushPlan({ to: parseCommaList(options.to) });
+    if (!plan.envFiles.length) {
+      console.log(`No .env files found in ${plan.repoRoot}.`);
+      return;
+    }
+
+    if (!plan.destinations.length) {
+      console.log("No existing target worktrees found for .env push.");
+      plan.messages.forEach(log);
+      return;
+    }
+
+    if (options.dryRun) {
+      console.log("Would push .env files to these paths:");
+      printEnvDestinationPaths(plan.destinations.map((destination) => destination.destinationPath));
+      printResult(await pushEnvFiles(plan, true), true);
+      return;
+    }
+
+    if (!options.yes) {
+      console.log("do you want to push .env files to these paths?");
+      printEnvDestinationPaths(plan.destinations.map((destination) => destination.destinationPath));
+      if (!(await confirm("Continue? [y/N] "))) {
+        console.log("Canceled.");
+        return;
+      }
+    }
+
+    printResult(await pushEnvFiles(plan), false);
+  });
+
 program
   .command("watch")
   .description("Run a background watcher that syncs after skill changes.")
@@ -202,18 +243,23 @@ program
       console.log(`  source: ${status.source}`);
       console.log(`  valid skills: ${status.validSkills}`);
       console.log(`  invalid skills: ${status.invalidSkills}`);
+      console.log(`  source rules: ${status.sourceRules}`);
       console.log(`  enabled targets: ${status.enabledTargets}`);
       console.log(`  managed target skills: ${status.managedSkills}`);
+      console.log(`  managed target rules: ${status.managedRules}`);
       if (options.verbose) {
         console.log(`  source skill names: ${status.skillNames.length ? status.skillNames.join(", ") : "(none)"}`);
+        console.log(`  source rule names: ${status.ruleNames.length ? status.ruleNames.join(", ") : "(none)"}`);
         for (const validation of status.invalidSkillDetails) {
           if (!validation.ok) console.log(`  invalid: ${validation.directory} (${validation.reason})`);
         }
         for (const target of status.targets) {
           const state = target.enabled ? "enabled" : "disabled";
           const managed = target.managedSkills.length ? target.managedSkills.join(", ") : "(none)";
+          const managedRules = target.managedRules.length ? target.managedRules.join(", ") : "(none)";
           console.log(`  target ${target.id}: ${state} -> ${target.path}`);
           console.log(`    managed: ${managed}`);
+          console.log(`    managed rules: ${managedRules}`);
         }
       }
     }
@@ -229,9 +275,11 @@ program
       if (options.fix) await ensureScope(scope);
       const config = await loadConfig(scope);
       const source = sourceDir(scope);
+      const rulesSource = rulesSourceDir(scope);
       const skills = await listValidSkills(source);
       console.log(`${scope}`);
       console.log(`  source: ${source}`);
+      console.log(`  rules source: ${rulesSource}`);
       console.log(`  valid skills: ${skills.skills.length}`);
       for (const validation of skills.invalid) {
         if (!validation.ok) console.log(`  invalid: ${validation.directory} (${validation.reason})`);
@@ -291,7 +339,9 @@ targets
   .argument("<id>", "target id")
   .requiredOption("--user-path <path>", "user-level skills path")
   .requiredOption("--project-path <path>", "project-level skills path")
-  .action(async (id: string, options: { userPath: string; projectPath: string }) => {
+  .option("--user-rule <source=target>", "user-level rule mapping; may be repeated", collect, [])
+  .option("--project-rule <source=target>", "project-level rule mapping; may be repeated", collect, [])
+  .action(async (id: string, options: { userPath: string; projectPath: string; userRule: string[]; projectRule: string[] }) => {
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)) {
       throw new InvalidArgumentError("target id must be lowercase alphanumeric with single hyphen separators");
     }
@@ -304,6 +354,8 @@ targets
         id,
         userPath: options.userPath,
         projectPath: options.projectPath,
+        userRules: parseRuleMappings(options.userRule),
+        projectRules: parseRuleMappings(options.projectRule),
         enabled: { user: true, project: true },
         builtIn: false
       };
@@ -391,6 +443,41 @@ function resolveInitMode(options: { nonInteractive?: boolean; targets?: string; 
 function parseCommaList(value: string | undefined): string[] {
   if (!value?.trim()) return [];
   return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
+function printEnvDestinationPaths(paths: string[]): void {
+  for (const destinationPath of paths) console.log(`  ${destinationPath}`);
+}
+
+async function confirm(prompt: string): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error("Confirmation required. Re-run in an interactive terminal or pass --yes.");
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(prompt)).trim().toLowerCase();
+    return answer === "y" || answer === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+function parseRuleMappings(values: string[]) {
+  return values.map((value) => {
+    const index = value.indexOf("=");
+    if (index <= 0 || index === value.length - 1) {
+      throw new InvalidArgumentError("rule mappings must use source=target");
+    }
+    return {
+      source: value.slice(0, index),
+      target: value.slice(index + 1)
+    };
+  });
 }
 
 async function configureTargets(scope: Scope, mode: InitMode): Promise<void> {

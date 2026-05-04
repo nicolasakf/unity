@@ -22,6 +22,13 @@ export async function writeSkill(parent: string, name: string, body = "Follow th
   return directory;
 }
 
+export async function writeRule(parent: string, name: string, body = "Follow the rules."): Promise<string> {
+  const filePath = path.join(parent, name);
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, body, "utf8");
+  return filePath;
+}
+
 export async function readText(filePath: string): Promise<string> {
   return fs.readFile(filePath, "utf8");
 }

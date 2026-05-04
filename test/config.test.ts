@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, removeRegisteredProject, saveConfig } from "../src/config.js";
-import { expandPath, isPathWithin, pathsEqual, resolveTargetPath, sourceDir } from "../src/paths.js";
+import { expandPath, isPathWithin, pathsEqual, resolveTargetPath, rulesSourceDir, sourceDir } from "../src/paths.js";
 import { getStatus } from "../src/status.js";
 import { createTempProject, exists } from "./helpers.js";
 
@@ -14,6 +14,8 @@ describe("configuration and paths", () => {
 
     await expect(exists(path.join(home, ".agents", "skills"))).resolves.toBe(true);
     await expect(exists(path.join(root, ".agents", "skills"))).resolves.toBe(true);
+    await expect(exists(path.join(home, ".agents", "rules"))).resolves.toBe(true);
+    await expect(exists(path.join(root, ".agents", "rules"))).resolves.toBe(true);
   });
 
   it("expands home and project-relative target paths", async () => {
@@ -34,6 +36,7 @@ describe("configuration and paths", () => {
 
     expect(reloaded.targets.cursor.enabled.project).toBe(false);
     expect(sourceDir("project", root)).toBe(path.join(root, ".agents", "skills"));
+    expect(rulesSourceDir("project", root)).toBe(path.join(root, ".agents", "rules"));
   });
 
   it("reports verbose status details", async () => {

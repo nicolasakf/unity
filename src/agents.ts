@@ -5,6 +5,7 @@ export const BUILT_IN_TARGETS: Record<string, TargetConfig> = {
     id: "codex",
     userPath: "~/.agents/skills",
     projectPath: ".agents/skills",
+    projectRules: [{ source: "AGENTS.md", target: "AGENTS.md" }],
     enabled: { user: true, project: true },
     builtIn: true
   },
@@ -19,6 +20,8 @@ export const BUILT_IN_TARGETS: Record<string, TargetConfig> = {
     id: "claude",
     userPath: "~/.claude/skills",
     projectPath: ".claude/skills",
+    userRules: [{ source: "CLAUDE.md", target: "~/.claude/CLAUDE.md" }],
+    projectRules: [{ source: "CLAUDE.md", target: "CLAUDE.md" }],
     enabled: { user: true, project: true },
     builtIn: true
   },
@@ -100,6 +103,8 @@ export function defaultConfigTargets(): Record<string, TargetConfig> {
       id,
       {
         ...target,
+        userRules: target.userRules?.map((rule) => ({ ...rule })),
+        projectRules: target.projectRules?.map((rule) => ({ ...rule })),
         enabled: { ...target.enabled }
       }
     ])

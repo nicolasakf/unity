@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ensureScope, enabledTargets, loadConfig } from "./config.js";
-import { copyDirectory, hashTree, pathExists, removeDirectory, sameHashTree } from "./file-tree.js";
+import { copyDirectory, hashFile, hashTree, listFiles, pathExists, removeDirectory, sameHashTree } from "./file-tree.js";
 import { withScopeLock } from "./lock.js";
-import { pathsEqual, resolveTargetPath, sourceDir } from "./paths.js";
+import { pathsEqual, resolveTargetPath, rulesSourceDir, sourceDir } from "./paths.js";
 import { getNameMismatchRepair, listValidSkills } from "./skills.js";
 import { loadState, saveState } from "./state.js";
-import type { ManagedSkill, Scope, SyncResult, TargetConfig, TargetState, UnityMessage } from "./types.js";
+import type { ManagedRule, ManagedSkill, RuleMapping, Scope, SyncResult, TargetConfig, TargetState, UnityMessage } from "./types.js";
 
 export type SyncOptions = {
   cwd?: string;
@@ -48,8 +48,11 @@ async function pushScopeUnlocked(scope: Scope, options: SyncOptions = {}): Promi
   const state = await loadState(scope, cwd);
   const messages: UnityMessage[] = [];
   const source = sourceDir(scope, cwd);
+  const rulesSource = rulesSourceDir(scope, cwd);
   const { skills, invalid } = await listValidSkills(source);
   const sourceSkillNames = new Set(skills.map((skill) => skill.name));
+  const sourceRules = await listRuleFiles(rulesSource);
+  const sourceRuleNames = new Set(sourceRules.map((rule) => rule.name));
   const result: SyncResult = {
     scope,
     copied: 0,
@@ -68,26 +71,53 @@ async function pushScopeUnlocked(scope: Scope, options: SyncOptions = {}): Promi
 
   for (const target of enabledTargets(config, scope)) {
     const targetPath = resolveTargetPath(pathForScope(target, scope), scope, cwd);
-    if (pathsEqual(targetPath, source)) {
+    const targetIsUnitySource = pathsEqual(targetPath, source);
+    if (targetIsUnitySource) {
       messages.push({ level: "info", message: `Skipped ${target.id}: target is the Unity source` });
-      continue;
     }
-    if (!dryRun) await fs.mkdir(targetPath, { recursive: true });
+    if (!targetIsUnitySource && !dryRun) await fs.mkdir(targetPath, { recursive: true });
     const targetState = state.targets[target.id] && pathsEqual(state.targets[target.id].targetPath, targetPath)
       ? state.targets[target.id]
-      : { targetPath, skills: {} };
+      : { targetPath, skills: {}, rules: state.targets[target.id]?.rules ?? {} };
+    targetState.rules ??= {};
 
-    for (const skill of skills) {
-      const sourceFiles = await hashTree(skill.directory);
-      const targetSkillDir = path.join(targetPath, skill.name);
-      const managed = targetState.skills[skill.name];
-      const copied = await syncSkill({
+    if (!targetIsUnitySource) {
+      for (const skill of skills) {
+        const sourceFiles = await hashTree(skill.directory);
+        const targetSkillDir = path.join(targetPath, skill.name);
+        const managed = targetState.skills[skill.name];
+        const copied = await syncSkill({
+          targetId: target.id,
+          skillName: skill.name,
+          sourceDir: skill.directory,
+          sourceFiles,
+          targetSkillDir,
+          managed,
+          force,
+          dryRun,
+          messages
+        });
+
+        if (copied === "copied") result.copied += 1;
+        if (copied === "skipped") result.skipped += 1;
+        if (!dryRun && copied !== "skipped") {
+          targetState.skills[skill.name] = { files: await hashTree(targetSkillDir) };
+        }
+      }
+    }
+
+    for (const mapping of rulesForScope(target, scope)) {
+      const sourceRule = sourceRules.find((rule) => rule.name === mapping.source);
+      if (!sourceRule) continue;
+      const targetRulePath = resolveTargetPath(mapping.target, scope, cwd);
+      const managed = targetState.rules[mapping.source];
+      const copied = await syncRule({
         targetId: target.id,
-        skillName: skill.name,
-        sourceDir: skill.directory,
-        sourceFiles,
-        targetSkillDir,
-        managed,
+        sourceName: mapping.source,
+        sourcePath: sourceRule.path,
+        sourceHash: sourceRule.hash,
+        targetPath: targetRulePath,
+        managed: managed && pathsEqual(managed.targetPath, targetRulePath) ? managed : undefined,
         force,
         dryRun,
         messages
@@ -96,17 +126,16 @@ async function pushScopeUnlocked(scope: Scope, options: SyncOptions = {}): Promi
       if (copied === "copied") result.copied += 1;
       if (copied === "skipped") result.skipped += 1;
       if (!dryRun && copied !== "skipped") {
-        targetState.skills[skill.name] = { files: await hashTree(targetSkillDir) };
+        targetState.rules[mapping.source] = { targetPath: targetRulePath, hash: await hashFile(targetRulePath) };
       }
     }
 
-    for (const [skillName, managed] of Object.entries(targetState.skills)) {
-      if (sourceSkillNames.has(skillName)) continue;
-      const targetSkillDir = path.join(targetPath, skillName);
-      const removed = await removeManagedSkill({
+    const supportedRules = new Set(rulesForScope(target, scope).map((rule) => rule.source));
+    for (const [sourceName, managed] of Object.entries(targetState.rules)) {
+      if (sourceRuleNames.has(sourceName) && supportedRules.has(sourceName)) continue;
+      const removed = await removeManagedRule({
         targetId: target.id,
-        skillName,
-        targetSkillDir,
+        sourceName,
         managed,
         force,
         dryRun,
@@ -114,12 +143,37 @@ async function pushScopeUnlocked(scope: Scope, options: SyncOptions = {}): Promi
       });
 
       if (!dryRun && removed === "removed") {
-        delete targetState.skills[skillName];
+        delete targetState.rules[sourceName];
       }
       if (removed === "removed") {
         result.removed += 1;
       } else if (removed === "skipped") {
         result.skipped += 1;
+      }
+    }
+
+    if (!targetIsUnitySource) {
+      for (const [skillName, managed] of Object.entries(targetState.skills)) {
+        if (sourceSkillNames.has(skillName)) continue;
+        const targetSkillDir = path.join(targetPath, skillName);
+        const removed = await removeManagedSkill({
+          targetId: target.id,
+          skillName,
+          targetSkillDir,
+          managed,
+          force,
+          dryRun,
+          messages
+        });
+
+        if (!dryRun && removed === "removed") {
+          delete targetState.skills[skillName];
+        }
+        if (removed === "removed") {
+          result.removed += 1;
+        } else if (removed === "skipped") {
+          result.skipped += 1;
+        }
       }
     }
 
@@ -164,7 +218,8 @@ async function pruneTargetUnlocked(
   const state = await loadState(scope, cwd);
   const messages: UnityMessage[] = [];
   const targetPath = resolveTargetPath(pathForScope(target, scope), scope, cwd);
-  const targetState = state.targets[targetId] ?? { targetPath, skills: {} };
+  const targetState = state.targets[targetId] ?? { targetPath, skills: {}, rules: {} };
+  targetState.rules ??= {};
   const result: SyncResult = {
     scope,
     copied: 0,
@@ -174,23 +229,44 @@ async function pruneTargetUnlocked(
     messages
   };
 
-  if (pathsEqual(targetPath, sourceDir(scope, cwd))) {
+  const targetIsUnitySource = pathsEqual(targetPath, sourceDir(scope, cwd));
+  if (targetIsUnitySource) {
     messages.push({ level: "info", message: `Skipped ${targetId}: target is the Unity source` });
-    return result;
   }
 
-  for (const [skillName, managed] of Object.entries(targetState.skills)) {
-    const removed = await removeManagedSkill({
+  if (!targetIsUnitySource) {
+    for (const [skillName, managed] of Object.entries(targetState.skills)) {
+      const removed = await removeManagedSkill({
+        targetId,
+        skillName,
+        targetSkillDir: path.join(targetPath, skillName),
+        managed,
+        force,
+        dryRun,
+        messages
+      });
+      if (!dryRun && removed === "removed") {
+        delete targetState.skills[skillName];
+      }
+      if (removed === "removed") {
+        result.removed += 1;
+      } else if (removed === "skipped") {
+        result.skipped += 1;
+      }
+    }
+  }
+
+  for (const [sourceName, managed] of Object.entries(targetState.rules)) {
+    const removed = await removeManagedRule({
       targetId,
-      skillName,
-      targetSkillDir: path.join(targetPath, skillName),
+      sourceName,
       managed,
       force,
       dryRun,
       messages
     });
     if (!dryRun && removed === "removed") {
-      delete targetState.skills[skillName];
+      delete targetState.rules[sourceName];
     }
     if (removed === "removed") {
       result.removed += 1;
@@ -227,11 +303,11 @@ async function pullScopeUnlocked(scope: Scope, options: PullOptions = {}): Promi
 
   for (const target of enabledTargets(config, scope)) {
     const sourcePath = resolveTargetPath(pathForScope(target, scope), scope, cwd);
-    if (pathsEqual(sourcePath, sourceDir(scope, cwd))) {
+    if (pathsEqual(sourcePath, sourceDir(scope, cwd)) && !(await hasTargetRules(target, scope, cwd))) {
       result.messages.push({ level: "info", message: `Skipped ${target.id}: target is the Unity source` });
       continue;
     }
-    if (!(await pathExists(sourcePath))) {
+    if (!(await pathExists(sourcePath)) && !(await hasTargetRules(target, scope, cwd))) {
       result.skipped += 1;
       result.messages.push({ level: "info", message: `Skipped ${target.id}: target path does not exist (${sourcePath})` });
       continue;
@@ -259,68 +335,95 @@ async function pullFromSource(from: string, scope: Scope, options: PullOptions =
     ? resolveTargetPath(pathForScope(config.targets[from], scope), scope, cwd)
     : resolveTargetPath(from, scope, cwd);
   const destination = sourceDir(scope, cwd);
+  const rulesDestination = rulesSourceDir(scope, cwd);
   const messages: UnityMessage[] = [];
   const result: SyncResult = { scope, copied: 0, removed: 0, skipped: 0, errors: 0, messages };
 
-  if (pathsEqual(sourcePath, destination)) {
+  const sourceTarget = config.targets[from];
+  if (pathsEqual(sourcePath, destination) && !sourceTarget) {
     messages.push({ level: "info", message: `Skipped ${from}: import source is the Unity source` });
     return result;
   }
 
-  if (!(await pathExists(sourcePath))) {
+  const hasRules = sourceTarget ? await hasTargetRules(sourceTarget, scope, cwd) : false;
+  if (!(await pathExists(sourcePath)) && !hasRules) {
     result.errors += 1;
     messages.push({ level: "error", message: `Pull source does not exist: ${sourcePath}` });
     return result;
   }
 
-  const { skills, invalid } = await listValidSkills(sourcePath);
-  for (const validation of invalid) {
-    if (!validation.ok) {
-      if (fixNames) {
-        const repair = await getNameMismatchRepair(validation.directory);
-        if (repair) {
-          const targetDir = path.join(destination, repair.fixedName);
-          if (await pathExists(targetDir)) {
-            result.skipped += 1;
-            messages.push({ level: "warning", message: `Skipped ${repair.fixedName}: already exists in ${destination}` });
+  if (!pathsEqual(sourcePath, destination)) {
+    const { skills, invalid } = await listValidSkills(sourcePath);
+    for (const validation of invalid) {
+      if (!validation.ok) {
+        if (fixNames) {
+          const repair = await getNameMismatchRepair(validation.directory);
+          if (repair) {
+            const targetDir = path.join(destination, repair.fixedName);
+            if (await pathExists(targetDir)) {
+              result.skipped += 1;
+              messages.push({ level: "warning", message: `Skipped ${repair.fixedName}: already exists in ${destination}` });
+              continue;
+            }
+
+            if (dryRun) {
+              messages.push({
+                level: "info",
+                message: `Would pull ${repair.fixedName} with name fixed from "${repair.currentName}"`
+              });
+            } else {
+              await copyDirectoryWithSkillName(repair.directory, targetDir, repair.fixedName);
+              messages.push({
+                level: "info",
+                message: `Pulled ${repair.fixedName} with name fixed from "${repair.currentName}"`
+              });
+            }
+            result.copied += 1;
             continue;
           }
-
-          if (dryRun) {
-            messages.push({
-              level: "info",
-              message: `Would pull ${repair.fixedName} with name fixed from "${repair.currentName}"`
-            });
-          } else {
-            await copyDirectoryWithSkillName(repair.directory, targetDir, repair.fixedName);
-            messages.push({
-              level: "info",
-              message: `Pulled ${repair.fixedName} with name fixed from "${repair.currentName}"`
-            });
-          }
-          result.copied += 1;
-          continue;
         }
-      }
 
-      result.skipped += 1;
-      messages.push({ level: "warning", message: `Skipped invalid pull at ${validation.directory}: ${validation.reason}` });
+        result.skipped += 1;
+        messages.push({ level: "warning", message: `Skipped invalid pull at ${validation.directory}: ${validation.reason}` });
+      }
+    }
+
+    for (const skill of skills) {
+      const targetDir = path.join(destination, skill.name);
+      if (await pathExists(targetDir)) {
+        result.skipped += 1;
+        messages.push({ level: "warning", message: `Skipped ${skill.name}: already exists in ${destination}` });
+        continue;
+      }
+      if (dryRun) {
+        messages.push({ level: "info", message: `Would pull ${skill.name} into ${destination}` });
+      } else {
+        await copyDirectory(skill.directory, targetDir);
+      }
+      result.copied += 1;
     }
   }
 
-  for (const skill of skills) {
-    const targetDir = path.join(destination, skill.name);
-    if (await pathExists(targetDir)) {
-      result.skipped += 1;
-      messages.push({ level: "warning", message: `Skipped ${skill.name}: already exists in ${destination}` });
-      continue;
+  if (sourceTarget) {
+    for (const mapping of rulesForScope(sourceTarget, scope)) {
+      const rulePath = resolveTargetPath(mapping.target, scope, cwd);
+      if (!(await pathIsFile(rulePath))) continue;
+
+      const targetRule = path.join(rulesDestination, mapping.source);
+      if (await pathExists(targetRule)) {
+        result.skipped += 1;
+        messages.push({ level: "warning", message: `Skipped ${mapping.source}: already exists in ${rulesDestination}` });
+        continue;
+      }
+
+      if (dryRun) {
+        messages.push({ level: "info", message: `Would pull ${mapping.source} into ${rulesDestination}` });
+      } else {
+        await fs.mkdir(path.dirname(targetRule), { recursive: true });
+        await fs.copyFile(rulePath, targetRule);
+      }
+      result.copied += 1;
     }
-    if (dryRun) {
-      messages.push({ level: "info", message: `Would pull ${skill.name} into ${destination}` });
-    } else {
-      await copyDirectory(skill.directory, targetDir);
-    }
-    result.copied += 1;
   }
 
   return result;
@@ -343,8 +446,43 @@ function combineResults(
   return result;
 }
 
+type RuleFile = {
+  name: string;
+  path: string;
+  hash: string;
+};
+
+async function listRuleFiles(source: string): Promise<RuleFile[]> {
+  return Promise.all(
+    (await listFiles(source)).map(async (name) => ({
+      name,
+      path: path.join(source, name),
+      hash: await hashFile(path.join(source, name))
+    }))
+  );
+}
+
 function pathForScope(target: TargetConfig, scope: Scope): string {
   return scope === "user" ? target.userPath : target.projectPath;
+}
+
+function rulesForScope(target: TargetConfig, scope: Scope): RuleMapping[] {
+  return scope === "user" ? target.userRules ?? [] : target.projectRules ?? [];
+}
+
+async function hasTargetRules(target: TargetConfig, scope: Scope, cwd: string): Promise<boolean> {
+  for (const mapping of rulesForScope(target, scope)) {
+    if (await pathIsFile(resolveTargetPath(mapping.target, scope, cwd))) return true;
+  }
+  return false;
+}
+
+async function pathIsFile(filePath: string): Promise<boolean> {
+  const stat = await fs.lstat(filePath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  return Boolean(stat?.isFile());
 }
 
 async function syncSkill(input: {
@@ -403,6 +541,74 @@ async function syncSkill(input: {
   return "copied";
 }
 
+async function syncRule(input: {
+  targetId: string;
+  sourceName: string;
+  sourcePath: string;
+  sourceHash: string;
+  targetPath: string;
+  managed?: ManagedRule;
+  force: boolean;
+  dryRun: boolean;
+  messages: UnityMessage[];
+}): Promise<"copied" | "unchanged" | "skipped"> {
+  const stat = await fs.lstat(input.targetPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+
+  if (stat?.isSymbolicLink()) {
+    input.messages.push({
+      level: "warning",
+      message: `Skipped ${input.sourceName} in ${input.targetId}: target is a symbolic link`
+    });
+    return "skipped";
+  }
+
+  if (stat && !stat.isFile()) {
+    input.messages.push({
+      level: "warning",
+      message: `Skipped ${input.sourceName} in ${input.targetId}: target is not a file`
+    });
+    return "skipped";
+  }
+
+  if (!stat) {
+    if (!input.dryRun) {
+      await fs.mkdir(path.dirname(input.targetPath), { recursive: true });
+      await fs.copyFile(input.sourcePath, input.targetPath);
+    }
+    input.messages.push({ level: "info", message: `${input.dryRun ? "Would copy" : "Copied"} ${input.sourceName} to ${input.targetId}` });
+    return "copied";
+  }
+
+  const currentHash = await hashFile(input.targetPath);
+  if (!input.managed && !input.force) {
+    input.messages.push({
+      level: "warning",
+      message: `Skipped ${input.sourceName} in ${input.targetId}: target exists but is not Unity-managed`
+    });
+    return "skipped";
+  }
+
+  if (input.managed && currentHash !== input.managed.hash && !input.force) {
+    input.messages.push({
+      level: "warning",
+      message: `Skipped ${input.sourceName} in ${input.targetId}: target changed outside Unity`
+    });
+    return "skipped";
+  }
+
+  if (currentHash === input.sourceHash) return "unchanged";
+
+  if (!input.dryRun) {
+    await fs.mkdir(path.dirname(input.targetPath), { recursive: true });
+    await fs.copyFile(input.sourcePath, input.targetPath);
+  }
+  input.messages.push({ level: "info", message: `${input.dryRun ? "Would update" : "Updated"} ${input.sourceName} in ${input.targetId}` });
+  return "copied";
+}
+
 async function removeManagedSkill(input: {
   targetId: string;
   skillName: string;
@@ -425,6 +631,41 @@ async function removeManagedSkill(input: {
 
   if (!input.dryRun) await removeDirectory(input.targetSkillDir);
   input.messages.push({ level: "info", message: `${input.dryRun ? "Would remove" : "Removed"} ${input.skillName} from ${input.targetId}` });
+  return "removed";
+}
+
+async function removeManagedRule(input: {
+  targetId: string;
+  sourceName: string;
+  managed: ManagedRule;
+  force: boolean;
+  dryRun: boolean;
+  messages: UnityMessage[];
+}): Promise<"removed" | "missing" | "skipped"> {
+  const stat = await fs.lstat(input.managed.targetPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (!stat) return "missing";
+  if (!stat.isFile()) {
+    input.messages.push({
+      level: "warning",
+      message: `Skipped removing ${input.sourceName} from ${input.targetId}: target is not a file`
+    });
+    return "skipped";
+  }
+
+  const currentHash = await hashFile(input.managed.targetPath);
+  if (currentHash !== input.managed.hash && !input.force) {
+    input.messages.push({
+      level: "warning",
+      message: `Skipped removing ${input.sourceName} from ${input.targetId}: target changed outside Unity`
+    });
+    return "skipped";
+  }
+
+  if (!input.dryRun) await fs.rm(input.managed.targetPath, { force: true });
+  input.messages.push({ level: "info", message: `${input.dryRun ? "Would remove" : "Removed"} ${input.sourceName} from ${input.targetId}` });
   return "removed";
 }
 

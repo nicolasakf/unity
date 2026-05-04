@@ -1,7 +1,7 @@
 import chokidar from "chokidar";
 import path from "node:path";
 import { enabledTargets, listRegisteredProjects, loadConfig } from "./config.js";
-import { configPath, isPathWithin, pathsEqual, resolveTargetPath, sourceDir } from "./paths.js";
+import { configPath, isPathWithin, pathsEqual, resolveTargetPath, rulesSourceDir, sourceDir } from "./paths.js";
 import { pullScope, pushScope } from "./sync.js";
 import type { Scope, TargetConfig, UnityMessage } from "./types.js";
 
@@ -66,7 +66,12 @@ async function watchTargetSet(
     }
     if (deleted && eventPath) {
       for (const target of targets) {
-        if (isPathWithin(sourceDir(target.scope, target.cwd), eventPath)) sourceDeletes.add(targetKey(target));
+        if (
+          isPathWithin(sourceDir(target.scope, target.cwd), eventPath) ||
+          isPathWithin(rulesSourceDir(target.scope, target.cwd), eventPath)
+        ) {
+          sourceDeletes.add(targetKey(target));
+        }
       }
     }
     clearTimeout(timer);
@@ -161,13 +166,16 @@ async function globalTargets(cwd: string): Promise<WatchTarget[]> {
 }
 
 async function watchedPaths(targets: WatchTarget[], options: WatchOptions): Promise<string[]> {
-  const paths = targets.map((target) => sourceDir(target.scope, target.cwd));
+  const paths = targets.flatMap((target) => [sourceDir(target.scope, target.cwd), rulesSourceDir(target.scope, target.cwd)]);
   if (!options.pull) return paths;
 
   for (const watchTarget of targets) {
     const config = await loadConfig(watchTarget.scope, watchTarget.cwd);
     for (const target of enabledTargets(config, watchTarget.scope)) {
       paths.push(resolveTargetPath(pathForScope(target, watchTarget.scope), watchTarget.scope, watchTarget.cwd));
+      for (const rule of rulesForScope(target, watchTarget.scope)) {
+        paths.push(resolveTargetPath(rule.target, watchTarget.scope, watchTarget.cwd));
+      }
     }
   }
 
@@ -176,6 +184,10 @@ async function watchedPaths(targets: WatchTarget[], options: WatchOptions): Prom
 
 function pathForScope(target: TargetConfig, scope: Scope): string {
   return scope === "user" ? target.userPath : target.projectPath;
+}
+
+function rulesForScope(target: TargetConfig, scope: Scope) {
+  return scope === "user" ? target.userRules ?? [] : target.projectRules ?? [];
 }
 
 function targetKey(target: WatchTarget): string {

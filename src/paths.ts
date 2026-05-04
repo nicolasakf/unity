@@ -32,6 +32,10 @@ export function sourceDir(scope: Scope, cwd = process.cwd()): string {
   return path.join(scopeBaseDir(scope, cwd), "skills");
 }
 
+export function rulesSourceDir(scope: Scope, cwd = process.cwd()): string {
+  return path.join(scopeBaseDir(scope, cwd), "rules");
+}
+
 export function configPath(scope: Scope, cwd = process.cwd()): string {
   return path.join(scopeBaseDir(scope, cwd), "config.json");
 }

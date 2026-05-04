@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { enabledTargets, ensureScope, loadConfig, saveConfig } from "../src/config.js";
-import { resolveTargetPath, sourceDir } from "../src/paths.js";
+import { resolveTargetPath, rulesSourceDir, sourceDir } from "../src/paths.js";
 import { pruneTarget, pullScope, pushScope, syncScope } from "../src/sync.js";
-import { createTempProject, exists, readText, writeSkill } from "./helpers.js";
+import { createTempProject, exists, readText, writeRule, writeSkill } from "./helpers.js";
 
 describe("sync", () => {
   it("mirrors project skills into all built-in project targets", async () => {
@@ -40,6 +40,81 @@ describe("sync", () => {
     await expect(exists(path.join(home, ".codeium", "windsurf", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
     await expect(exists(path.join(home, ".openclaw", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
     await expect(exists(path.join(home, ".qwen", "skills", "release-notes", "SKILL.md"))).resolves.toBe(true);
+  });
+
+  it("mirrors project rules into built-in project rule files", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    await writeRule(rulesSourceDir("project", root), "AGENTS.md", "Use repo instructions.");
+    await writeRule(rulesSourceDir("project", root), "CLAUDE.md", "Use Claude instructions.");
+
+    const result = await pushScope("project", { cwd: root });
+
+    expect(result.copied).toBe(2);
+    await expect(readText(path.join(root, "AGENTS.md"))).resolves.toBe("Use repo instructions.");
+    await expect(readText(path.join(root, "CLAUDE.md"))).resolves.toBe("Use Claude instructions.");
+  });
+
+  it("pulls project rules from configured targets into the Unity source", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    await fs.writeFile(path.join(root, "CLAUDE.md"), "Claude rules.", "utf8");
+
+    const result = await pullScope("project", { cwd: root, from: "claude" });
+
+    expect(result.copied).toBe(1);
+    await expect(readText(path.join(root, ".agents", "rules", "CLAUDE.md"))).resolves.toBe("Claude rules.");
+  });
+
+  it("mirrors user rules into built-in user rule files", async () => {
+    const { root, home } = await createTempProject();
+    await ensureScope("user", root);
+    await writeRule(rulesSourceDir("user", root), "CLAUDE.md", "User Claude rules.");
+
+    const result = await pushScope("user", { cwd: root });
+
+    expect(result.copied).toBe(1);
+    await expect(readText(path.join(home, ".claude", "CLAUDE.md"))).resolves.toBe("User Claude rules.");
+  });
+
+  it("removes managed target rules when source rules are deleted", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    const rulePath = await writeRule(rulesSourceDir("project", root), "CLAUDE.md", "Temporary rules.");
+    await pushScope("project", { cwd: root });
+
+    await fs.rm(rulePath);
+    const result = await pushScope("project", { cwd: root });
+
+    expect(result.removed).toBe(1);
+    await expect(exists(path.join(root, "CLAUDE.md"))).resolves.toBe(false);
+  });
+
+  it("does not overwrite unmanaged target rules unless forced", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    await writeRule(rulesSourceDir("project", root), "CLAUDE.md", "Source rules.");
+    await fs.writeFile(path.join(root, "CLAUDE.md"), "unmanaged", "utf8");
+
+    const result = await pushScope("project", { cwd: root });
+    expect(result.skipped).toBe(1);
+    await expect(readText(path.join(root, "CLAUDE.md"))).resolves.toBe("unmanaged");
+
+    const forced = await pushScope("project", { cwd: root, force: true });
+    expect(forced.copied).toBe(1);
+    await expect(readText(path.join(root, "CLAUDE.md"))).resolves.toBe("Source rules.");
+  });
+
+  it("previews rule sync changes without writing targets or state", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    await writeRule(rulesSourceDir("project", root), "CLAUDE.md", "Preview rules.");
+
+    const result = await pushScope("project", { cwd: root, dryRun: true });
+
+    expect(result.copied).toBe(1);
+    await expect(exists(path.join(root, "CLAUDE.md"))).resolves.toBe(false);
+    await expect(exists(path.join(root, ".agents", "state.json"))).resolves.toBe(false);
   });
 
   it("removes managed target skills when source skills are deleted", async () => {

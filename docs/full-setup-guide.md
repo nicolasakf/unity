@@ -16,7 +16,7 @@ unity --help
 
 ## Initialize
 
-For the user-wide skills source:
+For the user-wide skills and rules source:
 
 ```bash
 unity init
@@ -42,7 +42,7 @@ With `--non-interactive` and no `--targets` / no `UNITY_INIT_TARGETS`, all built
 
 ## Pull Existing Skills
 
-If the user already has skills in one agent, pull them into Unity before syncing:
+If the user already has skills or supported rule files in one agent, pull them into Unity before syncing:
 
 ```bash
 unity pull --from claude --scope user --fix-names
@@ -59,7 +59,7 @@ unity pull --from ~/.claude/skills --scope user
 unity pull --from .cursor/skills --scope project
 ```
 
-To discover new skills across all enabled targets, pull into Unity:
+To discover new skills and supported rule files across all enabled targets, pull into Unity:
 
 ```bash
 unity pull --scope all --fix-names
@@ -67,7 +67,7 @@ unity pull --scope all --fix-names
 
 ## Push
 
-Push Unity's source skills to enabled agent directories:
+Push Unity's source skills and rules to enabled targets:
 
 ```bash
 unity push --scope all
@@ -79,11 +79,56 @@ Preview first when touching an existing setup:
 unity push --scope all --dry-run
 ```
 
-If Unity reports conflicts, do not use `--force` without user approval. Conflicts mean a target skill exists or changed outside Unity.
+If Unity reports conflicts, do not use `--force` without user approval. Conflicts mean a target skill or rule exists or changed outside Unity.
+
+## Environment Files
+
+Push root `.env` files from the current repository to existing configured target worktrees. Unity checks conventional target worktree stores like `~/.codex/worktrees`, `~/.claude/worktrees`, and `~/.cursor/worktrees`, plus the worktree store next to each target's configured user skills path. Worktrees are matched back to the current repository before they are included:
+
+```bash
+unity env push
+```
+
+Unity previews the destination paths and asks for confirmation before copying:
+
+```text
+do you want to push .env files to these paths?
+  /path/to/worktree/.env
+  /path/to/worktree/.env.local
+```
+
+Limit the push to one or more configured targets:
+
+```bash
+unity env push --to claude
+unity env push --to claude,cursor
+```
+
+Use `--dry-run` to list the paths without writing files. Use `--yes` only when the destination list has already been reviewed.
+
+## Rule Files
+
+Rule sources live next to skills:
+
+```text
+~/.agents/rules
+<repo>/.agents/rules
+```
+
+Built-in mappings include project `AGENTS.md` for Codex and `CLAUDE.md` for Claude Code. Claude also has a user-level `~/.claude/CLAUDE.md` mapping. For example, `<repo>/.agents/rules/AGENTS.md` pushes to `<repo>/AGENTS.md`, and `<repo>/.agents/rules/CLAUDE.md` pushes to `<repo>/CLAUDE.md`.
+
+Custom targets can declare rule mappings:
+
+```bash
+unity targets add my-agent \
+  --user-path ~/.my-agent/skills \
+  --project-path .my-agent/skills \
+  --project-rule MY_AGENT.md=MY_AGENT.md
+```
 
 ## Sync
 
-Sync pulls new target skills into Unity first, then pushes Unity's source skills to enabled agent directories:
+Sync pulls new target skills and supported rule files into Unity first, then pushes Unity's source skills and rules to enabled targets:
 
 ```bash
 unity sync --scope all
@@ -137,4 +182,4 @@ unity status --verbose
 unity doctor --fix
 ```
 
-`status --verbose` shows managed skills per target. `doctor --fix` creates missing source/config and enabled target directories.
+`status --verbose` shows managed skills and rules per target. `doctor --fix` creates missing source/config and enabled target directories.

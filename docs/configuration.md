@@ -2,12 +2,12 @@
 
 Unity stores config and sync state separately for user and project scopes.
 
-| Scope | Config | State | Source |
-| --- | --- | --- | --- |
-| User | `~/.agents/config.json` | `~/.agents/state.json` | `~/.agents/skills` |
-| Project | `<repo>/.agents/config.json` | `<repo>/.agents/state.json` | `<repo>/.agents/skills` |
+| Scope | Config | State | Skills source | Rules source |
+| --- | --- | --- | --- | --- |
+| User | `~/.agents/config.json` | `~/.agents/state.json` | `~/.agents/skills` | `~/.agents/rules` |
+| Project | `<repo>/.agents/config.json` | `<repo>/.agents/state.json` | `<repo>/.agents/skills` | `<repo>/.agents/rules` |
 
-`state.json` is a manifest of Unity-managed target files. It is used to avoid overwriting files that were not created by Unity. Codex and Orion read the Unity source path directly (under `.agents/skills`), so those targets are skipped during copy and prune operations.
+`state.json` is a manifest of Unity-managed target files. It is used to avoid overwriting files that were not created by Unity. Codex and Orion read the Unity skills source path directly (under `.agents/skills`), so those skill directories are skipped during copy and prune operations. Rule files are tracked separately in the same manifest.
 
 ### Non-interactive init
 
@@ -38,6 +38,12 @@ If `--non-interactive` is used without targets and without `UNITY_INIT_TARGETS`,
       "id": "codex",
       "userPath": "~/.agents/skills",
       "projectPath": ".agents/skills",
+      "projectRules": [
+        {
+          "source": "AGENTS.md",
+          "target": "AGENTS.md"
+        }
+      ],
       "enabled": {
         "user": true,
         "project": true
@@ -66,6 +72,8 @@ Each target has:
 | `id` | Stable target identifier. |
 | `userPath` | User-level skills directory. `~` expands to the home directory. |
 | `projectPath` | Project-level skills directory relative to the repository root unless absolute. |
+| `userRules` | Optional user-level rule file mappings from `~/.agents/rules/<source>` to a target file. |
+| `projectRules` | Optional project-level rule file mappings from `<repo>/.agents/rules/<source>` to a target file. |
 | `enabled.user` | Whether user-scope sync writes to this target. |
 | `enabled.project` | Whether project-scope sync writes to this target. |
 | `builtIn` | Whether Unity created the target by default. |
@@ -78,7 +86,8 @@ The user config also has a top-level `projects` array. `unity projects add <path
 {
   "codex": {
     "userPath": "~/.agents/skills",
-    "projectPath": ".agents/skills"
+    "projectPath": ".agents/skills",
+    "projectRules": [{ "source": "AGENTS.md", "target": "AGENTS.md" }]
   },
   "orion": {
     "userPath": "~/.agents/skills",
@@ -86,7 +95,9 @@ The user config also has a top-level `projects` array. `unity projects add <path
   },
   "claude": {
     "userPath": "~/.claude/skills",
-    "projectPath": ".claude/skills"
+    "projectPath": ".claude/skills",
+    "userRules": [{ "source": "CLAUDE.md", "target": "~/.claude/CLAUDE.md" }],
+    "projectRules": [{ "source": "CLAUDE.md", "target": "CLAUDE.md" }]
   },
   "augment": {
     "userPath": "~/.augment/skills",
@@ -136,10 +147,11 @@ The user config also has a top-level `projects` array. `unity projects add <path
 ```bash
 unity targets add pi-code \
   --user-path ~/.pi-code/skills \
-  --project-path .pi-code/skills
+  --project-path .pi-code/skills \
+  --project-rule PI.md=PI.md
 ```
 
-The command adds the custom target to both user and project configs.
+The command adds the custom target to both user and project configs. Rule mappings use `source=target`, where `source` is relative to `.agents/rules` for that scope and `target` is resolved like other target paths.
 
 ## Disable and prune
 
@@ -155,4 +167,4 @@ Disable and remove Unity-managed files:
 unity targets disable claude --scope all --prune
 ```
 
-Pruning only removes skills listed in Unity's manifest. It skips target skills that changed outside Unity.
+Pruning only removes skills and rules listed in Unity's manifest. It skips target files that changed outside Unity.

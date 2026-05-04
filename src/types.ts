@@ -5,8 +5,15 @@ export type TargetConfig = {
   id: string;
   userPath: string;
   projectPath: string;
+  userRules?: RuleMapping[];
+  projectRules?: RuleMapping[];
   enabled: Record<Scope, boolean>;
   builtIn?: boolean;
+};
+
+export type RuleMapping = {
+  source: string;
+  target: string;
 };
 
 export type UnityConfig = {
@@ -19,9 +26,15 @@ export type ManagedSkill = {
   files: Record<string, string>;
 };
 
+export type ManagedRule = {
+  targetPath: string;
+  hash: string;
+};
+
 export type TargetState = {
   targetPath: string;
   skills: Record<string, ManagedSkill>;
+  rules?: Record<string, ManagedRule>;
 };
 
 export type UnityState = {
