@@ -2,6 +2,10 @@
 
 Unity keeps [Agent Skills](https://agentskills.io/home) and agent rule files in one source-of-truth tree and mirrors them into the folders and files used by coding agents such as Codex, Orion, Claude Code, Cursor, OpenCode, etc.
 
+## Demo
+
+![Unity syncing Agent Skills](assets/sync_skills.gif)
+
 ## Install Unity
 
 ```bash
