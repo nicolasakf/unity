@@ -18,6 +18,7 @@ export type PullOptions = {
   cwd?: string;
   from?: string;
   fixNames?: boolean;
+  updateExisting?: boolean;
   dryRun?: boolean;
 };
 
@@ -298,7 +299,7 @@ async function pullScopeUnlocked(scope: Scope, options: PullOptions = {}): Promi
   const result: SyncResult = { scope, copied: 0, removed: 0, skipped: 0, errors: 0, messages: [] };
 
   if (options.from) {
-    return pullFromSource(options.from, scope, options);
+    return pullFromSource(options.from, scope, { ...options, updateExisting: options.updateExisting ?? true });
   }
 
   for (const target of enabledTargets(config, scope)) {
@@ -329,6 +330,7 @@ async function pullScopeUnlocked(scope: Scope, options: PullOptions = {}): Promi
 async function pullFromSource(from: string, scope: Scope, options: PullOptions = {}): Promise<SyncResult> {
   const cwd = options.cwd ?? process.cwd();
   const fixNames = options.fixNames ?? false;
+  const updateExisting = options.updateExisting ?? false;
   const dryRun = options.dryRun ?? false;
   const config = await loadConfig(scope, cwd);
   const sourcePath = config.targets[from]
@@ -391,8 +393,21 @@ async function pullFromSource(from: string, scope: Scope, options: PullOptions =
     for (const skill of skills) {
       const targetDir = path.join(destination, skill.name);
       if (await pathExists(targetDir)) {
-        result.skipped += 1;
-        messages.push({ level: "warning", message: `Skipped ${skill.name}: already exists in ${destination}` });
+        if (!updateExisting) {
+          result.skipped += 1;
+          messages.push({ level: "warning", message: `Skipped ${skill.name}: already exists in ${destination}` });
+          continue;
+        }
+
+        const sourceFiles = await hashTree(targetDir);
+        const targetFiles = await hashTree(skill.directory);
+        if (sameHashTree(sourceFiles, targetFiles)) continue;
+        if (dryRun) {
+          messages.push({ level: "info", message: `Would update ${skill.name} in ${destination}` });
+        } else {
+          await copyDirectory(skill.directory, targetDir);
+        }
+        result.copied += 1;
         continue;
       }
       if (dryRun) {
@@ -411,8 +426,21 @@ async function pullFromSource(from: string, scope: Scope, options: PullOptions =
 
       const targetRule = path.join(rulesDestination, mapping.source);
       if (await pathExists(targetRule)) {
-        result.skipped += 1;
-        messages.push({ level: "warning", message: `Skipped ${mapping.source}: already exists in ${rulesDestination}` });
+        if (!updateExisting) {
+          result.skipped += 1;
+          messages.push({ level: "warning", message: `Skipped ${mapping.source}: already exists in ${rulesDestination}` });
+          continue;
+        }
+
+        const sourceHash = await hashFile(targetRule);
+        const targetHash = await hashFile(rulePath);
+        if (sourceHash === targetHash) continue;
+        if (dryRun) {
+          messages.push({ level: "info", message: `Would update ${mapping.source} in ${rulesDestination}` });
+        } else {
+          await fs.copyFile(rulePath, targetRule);
+        }
+        result.copied += 1;
         continue;
       }
 
@@ -516,6 +544,10 @@ async function syncSkill(input: {
   }
 
   const currentFiles = await hashTree(input.targetSkillDir);
+  if (sameHashTree(currentFiles, input.sourceFiles)) {
+    return "unchanged";
+  }
+
   if (!input.managed && !input.force) {
     input.messages.push({
       level: "warning",
@@ -530,10 +562,6 @@ async function syncSkill(input: {
       message: `Skipped ${input.skillName} in ${input.targetId}: target changed outside Unity`
     });
     return "skipped";
-  }
-
-  if (sameHashTree(currentFiles, input.sourceFiles)) {
-    return "unchanged";
   }
 
   if (!input.dryRun) await copyDirectory(input.sourceDir, input.targetSkillDir);
@@ -583,6 +611,8 @@ async function syncRule(input: {
   }
 
   const currentHash = await hashFile(input.targetPath);
+  if (currentHash === input.sourceHash) return "unchanged";
+
   if (!input.managed && !input.force) {
     input.messages.push({
       level: "warning",
@@ -598,8 +628,6 @@ async function syncRule(input: {
     });
     return "skipped";
   }
-
-  if (currentHash === input.sourceHash) return "unchanged";
 
   if (!input.dryRun) {
     await fs.mkdir(path.dirname(input.targetPath), { recursive: true });

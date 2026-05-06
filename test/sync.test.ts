@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { enabledTargets, ensureScope, loadConfig, saveConfig } from "../src/config.js";
 import { resolveTargetPath, rulesSourceDir, sourceDir } from "../src/paths.js";
+import { loadState } from "../src/state.js";
 import { pruneTarget, pullScope, pushScope, syncScope } from "../src/sync.js";
 import { createTempProject, exists, readText, writeRule, writeSkill } from "./helpers.js";
 
@@ -64,6 +65,37 @@ describe("sync", () => {
 
     expect(result.copied).toBe(1);
     await expect(readText(path.join(root, ".agents", "rules", "CLAUDE.md"))).resolves.toBe("Claude rules.");
+  });
+
+  it("updates existing source rules when a changed target rule is pulled", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    const config = await loadConfig("project", root);
+    config.targets.claude.projectRules = [{ source: "AGENTS.md", target: "CLAUDE.md" }];
+    await saveConfig("project", config, root);
+    await writeRule(rulesSourceDir("project", root), "AGENTS.md", "Old shared rules.");
+    await pushScope("project", { cwd: root });
+
+    await fs.writeFile(path.join(root, "CLAUDE.md"), "New shared rules.", "utf8");
+    const result = await pullScope("project", { cwd: root, from: "claude" });
+    await pushScope("project", { cwd: root });
+
+    expect(result.copied).toBe(1);
+    await expect(readText(path.join(root, ".agents", "rules", "AGENTS.md"))).resolves.toBe("New shared rules.");
+    await expect(readText(path.join(root, "AGENTS.md"))).resolves.toBe("New shared rules.");
+  });
+
+  it("adopts matching existing target rules into state", async () => {
+    const { root } = await createTempProject();
+    await ensureScope("project", root);
+    await writeRule(rulesSourceDir("project", root), "CLAUDE.md", "Shared rules.");
+    await fs.writeFile(path.join(root, "CLAUDE.md"), "Shared rules.", "utf8");
+
+    const result = await pushScope("project", { cwd: root });
+    const state = await loadState("project", root);
+
+    expect(result.skipped).toBe(0);
+    expect(state.targets.claude.rules?.["CLAUDE.md"]).toBeDefined();
   });
 
   it("mirrors user rules into built-in user rule files", async () => {
