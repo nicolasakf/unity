@@ -120,6 +120,9 @@ async function watchTargetSet(
         pending = false;
         const eventPaths = [...changedPaths];
         changedPaths.clear();
+        if (eventPaths.length) {
+          onMessage({ level: "info", message: `Changed: ${eventPaths.join(", ")}` });
+        }
         if (dynamic && reloadRequested) {
           reloadRequested = false;
           targets = await dynamic.reloadTargets();

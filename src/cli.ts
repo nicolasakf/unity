@@ -2,9 +2,11 @@ import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError } from "commander";
+import { appendLogEntry, clearLog, dailyLogPath, ensureLogDir, openLogDir, readLogTail } from "./action-log.js";
+import type { LogCategory } from "./action-log.js";
 import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, removeRegisteredProject, saveConfig } from "./config.js";
 import { buildEnvPushPlan, pushEnvFiles } from "./env.js";
-import { configPath, expandScopes, resolveTargetPath, rulesSourceDir, sourceDir } from "./paths.js";
+import { configPath, expandScopes, logDir, resolveTargetPath, rulesSourceDir, sourceDir } from "./paths.js";
 import { getStatus } from "./status.js";
 import { pruneTarget, pullScope, pushScope, syncScope } from "./sync.js";
 import type { Scope, ScopeInput, SyncResult, TargetConfig, UnityConfig, UnityMessage } from "./types.js";
@@ -57,6 +59,15 @@ program
   .description("Keep one Agent Skills source of truth mirrored into coding-agent skill directories.")
   .version("0.1.0");
 
+program.hook("preAction", async () => {
+  await ensureLogDir();
+  await appendLogEntry("info", "command", `$ ${process.argv.slice(2).join(" ") || "help"}`);
+});
+
+program.hook("postAction", async () => {
+  await appendLogEntry("info", "command", "completed");
+});
+
 program
   .command("init")
   .description("Create Unity user source, config, and state directories.")
@@ -76,12 +87,12 @@ program
         await configureTargets("user", mode);
         await configureInitProjects(mode);
       }
-      log({ level: "info", message: `Initialized user scope at ${sourceDir("user")}` });
+      log({ level: "info", message: `Initialized user scope at ${sourceDir("user")}` }, "config");
       const skillState = await ensureUnitySkill();
       log({
         level: "info",
         message: `${skillState === "created" ? "Created" : "Found"} user unity-skill at ${sourceDir("user")}/unity-skill`
-      });
+      }, "config");
       printResult(await pushScope("user"));
     }
   );
@@ -143,7 +154,7 @@ env
 
     if (!plan.destinations.length) {
       console.log("No existing target worktrees found for .env push.");
-      plan.messages.forEach(log);
+      plan.messages.forEach((message) => log(message, "env"));
       return;
     }
 
@@ -188,7 +199,7 @@ program
     });
     child.unref();
     await waitForBackgroundWatcher(child.pid);
-    console.log(`Started Unity watcher in background (pid ${child.pid}).`);
+    logOutput(`Started Unity watcher in background (pid ${child.pid}).`, "watcher");
   });
 
 program
@@ -228,7 +239,7 @@ program
     const pid = state.pid;
     await stopExistingWatcher();
     await getWatcherState();
-    console.log(`Stopped Unity watcher (pid ${pid}).`);
+    logOutput(`Stopped Unity watcher (pid ${pid}).`, "watcher");
   });
 
 program
@@ -315,7 +326,7 @@ targets
   .action(async (agent: string, options: { scope: ScopeInput }) => {
     for (const scope of expandScopes(options.scope)) {
       await setTargetEnabled(scope, agent, true);
-      log({ level: "info", message: `Enabled ${agent} for ${scope}` });
+      log({ level: "info", message: `Enabled ${agent} for ${scope}` }, "config");
     }
   });
 
@@ -328,7 +339,7 @@ targets
   .action(async (agent: string, options: { scope: ScopeInput; prune: boolean }) => {
     for (const scope of expandScopes(options.scope)) {
       await setTargetEnabled(scope, agent, false);
-      log({ level: "info", message: `Disabled ${agent} for ${scope}` });
+      log({ level: "info", message: `Disabled ${agent} for ${scope}` }, "config");
       if (options.prune) printResult(await pruneTarget(scope, agent));
     }
   });
@@ -362,7 +373,7 @@ targets
       config.targets[id] = target;
       await saveConfig(scope, config);
     }
-    log({ level: "info", message: `Added custom target ${id}` });
+    log({ level: "info", message: `Added custom target ${id}` }, "config");
   });
 
 const projects = program.command("projects").description("Manage projects watched by the global watcher.");
@@ -385,7 +396,7 @@ projects
   .argument("[path]", "project path", ".")
   .action(async (projectPath: string) => {
     const projectRoot = await addRegisteredProject(projectPath);
-    log({ level: "info", message: `Watching project ${projectRoot}` });
+    log({ level: "info", message: `Watching project ${projectRoot}` }, "config");
   });
 
 projects
@@ -395,10 +406,50 @@ projects
   .action(async (projectPath: string) => {
     const projectRoot = await removeRegisteredProject(projectPath);
     if (projectRoot) {
-      log({ level: "info", message: `Stopped watching project ${projectRoot}` });
+      log({ level: "info", message: `Stopped watching project ${projectRoot}` }, "config");
     } else {
-      log({ level: "warning", message: "Project was not registered" });
+      log({ level: "warning", message: "Project was not registered" }, "config");
     }
+  });
+
+program
+  .command("log")
+  .description("Show Unity action logs or open the log directory.")
+  .option("--open", "open the log directory in the file manager")
+  .option("--path", "print the log directory path")
+  .option("--date <YYYY-MM-DD>", "show logs for a specific day")
+  .option("-n, --lines <count>", "number of log lines to show", parsePositiveInt, 50)
+  .option("--clear", "clear the log file for the selected day")
+  .action(async (options: { open?: boolean; path?: boolean; date?: string; lines: number; clear?: boolean }) => {
+    await ensureLogDir();
+
+    if (options.path) {
+      console.log(logDir());
+      return;
+    }
+
+    if (options.open) {
+      const dir = await openLogDir();
+      log({ level: "info", message: `Opened log directory ${dir}` }, "command");
+      return;
+    }
+
+    const filePath = options.date ? dailyLogPath(new Date(`${options.date}T12:00:00.000Z`)) : undefined;
+
+    if (options.clear) {
+      const cleared = await clearLog(options.date ? new Date(`${options.date}T12:00:00.000Z`) : new Date());
+      log({ level: "info", message: `Cleared log ${cleared}` }, "command");
+      console.log(`Cleared ${cleared}`);
+      return;
+    }
+
+    const content = await readLogTail(options.lines, filePath);
+    if (!content) {
+      console.log(`No log entries yet. Logs are written to ${logDir()}`);
+      return;
+    }
+
+    console.log(content);
   });
 
 program.exitOverride();
@@ -411,11 +462,22 @@ try {
     process.exitCode = 0;
   } else if (error instanceof InvalidArgumentError) {
     console.error(error.message);
+    void appendLogEntry("error", "command", error.message);
     process.exitCode = 1;
   } else {
-    console.error((error as Error).message);
+    const message = (error as Error).message;
+    console.error(message);
+    void appendLogEntry("error", "command", message);
     process.exitCode = 1;
   }
+}
+
+function parsePositiveInt(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new InvalidArgumentError("lines must be a positive integer");
+  }
+  return parsed;
 }
 
 function parseScope(value: string): ScopeInput {
@@ -530,9 +592,9 @@ async function configureInitProjects(mode: InitMode): Promise<void> {
     for (const input of parseCommaList(mode.projectsCsv)) {
       try {
         const root = await addRegisteredProject(input);
-        log({ level: "info", message: `Registered project ${root}` });
+        log({ level: "info", message: `Registered project ${root}` }, "config");
       } catch (error) {
-        log({ level: "warning", message: (error as Error).message });
+        log({ level: "warning", message: (error as Error).message }, "config");
       }
     }
     return;
@@ -552,9 +614,9 @@ async function configureInitProjects(mode: InitMode): Promise<void> {
     if (result.trim() === "") break;
     try {
       const root = await addRegisteredProject(result.trim());
-      log({ level: "info", message: `Registered project ${root}` });
+      log({ level: "info", message: `Registered project ${root}` }, "config");
     } catch (error) {
-      log({ level: "warning", message: (error as Error).message });
+      log({ level: "warning", message: (error as Error).message }, "config");
     }
   }
 }
@@ -594,11 +656,11 @@ async function runWatcher(options: { scope: WatchScopeInput; pull: boolean; fixN
   try {
     if (options.scope === "global") {
       await ensureScope("user");
-      await watchGlobal(process.cwd(), log, { pull: options.pull, fixNames: options.fixNames });
+      await watchGlobal(process.cwd(), watchLog, { pull: options.pull, fixNames: options.fixNames });
     } else {
       const scopes = expandScopes(options.scope);
       for (const scope of scopes) await ensureScope(scope);
-      await watchScopes(scopes, process.cwd(), log, { pull: options.pull, fixNames: options.fixNames });
+      await watchScopes(scopes, process.cwd(), watchLog, { pull: options.pull, fixNames: options.fixNames });
     }
   } finally {
     await releaseWatcher();
@@ -638,12 +700,24 @@ async function setTargetEnabled(scope: Scope, targetId: string, enabled: boolean
 
 function printResult(result: SyncResult, dryRun = false): void {
   const prefix = dryRun ? "dry-run " : "";
-  console.log(`${result.scope}: ${prefix}copied ${result.copied}, removed ${result.removed}, skipped ${result.skipped}, errors ${result.errors}`);
-  result.messages.forEach(log);
+  const summary = `${result.scope}: ${prefix}copied ${result.copied}, removed ${result.removed}, skipped ${result.skipped}, errors ${result.errors}`;
+  console.log(summary);
+  void appendLogEntry("info", "sync", summary);
+  result.messages.forEach((message) => log(message, "sync"));
 }
 
-function log(message: UnityMessage): void {
+function watchLog(message: UnityMessage): void {
+  log(message, "watch");
+}
+
+function log(message: UnityMessage, category: LogCategory = "sync"): void {
   const prefix = message.level === "error" ? "error" : message.level === "warning" ? "warning" : "info";
   const writer = message.level === "error" ? console.error : console.log;
   writer(`${prefix}: ${message.message}`);
+  void appendLogEntry(message.level, category, message.message);
+}
+
+function logOutput(message: string, category: LogCategory = "command"): void {
+  console.log(message);
+  void appendLogEntry("info", category, message);
 }

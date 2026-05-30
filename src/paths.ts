@@ -52,6 +52,10 @@ export function watchStatePath(cwd = process.cwd()): string {
   return path.join(scopeBaseDir("user", cwd), "watch.json");
 }
 
+export function logDir(cwd = process.cwd()): string {
+  return path.join(scopeBaseDir("user", cwd), "logs");
+}
+
 export function resolveTargetPath(input: string, scope: Scope, cwd = process.cwd()): string {
   const base = scope === "user" ? homeDir() : findProjectRoot(cwd);
   return expandPath(input, base);

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { defaultConfigTargets } from "./agents.js";
+import { ensureLogDir } from "./action-log.js";
 import { configPath, expandPath, findProjectRoot, rulesSourceDir, sourceDir } from "./paths.js";
 import type { Scope, TargetConfig, UnityConfig } from "./types.js";
 import { readJsonFile, writeJsonFile } from "./json.js";
@@ -49,6 +50,7 @@ export async function saveConfig(scope: Scope, config: UnityConfig, cwd = proces
 export async function ensureScope(scope: Scope, cwd = process.cwd()): Promise<UnityConfig> {
   await fs.mkdir(sourceDir(scope, cwd), { recursive: true });
   await fs.mkdir(rulesSourceDir(scope, cwd), { recursive: true });
+  if (scope === "user") await ensureLogDir(cwd);
   const cfgPath = configPath(scope, cwd);
   const configExisted = await configFileExists(cfgPath);
   const config = await loadConfig(scope, cwd);
