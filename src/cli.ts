@@ -6,7 +6,8 @@ import { appendLogEntry, clearLog, dailyLogPath, ensureLogDir, openLogDir, readL
 import type { LogCategory } from "./action-log.js";
 import { addRegisteredProject, ensureScope, listRegisteredProjects, loadConfig, removeRegisteredProject, saveConfig } from "./config.js";
 import { buildEnvPushPlan, pushEnvFiles } from "./env.js";
-import { configPath, expandScopes, logDir, resolveTargetPath, rulesSourceDir, sourceDir } from "./paths.js";
+import { formatMigrateResults, migrateLayout } from "./migrate.js";
+import { configExists, expandScopes, logDir, resolveTargetPath, rulesSourceDir, sourceDir } from "./paths.js";
 import { getStatus } from "./status.js";
 import { pruneTarget, pullScope, pushScope, syncScope } from "./sync.js";
 import type { Scope, ScopeInput, SyncResult, TargetConfig, UnityConfig, UnityMessage } from "./types.js";
@@ -80,7 +81,7 @@ program
       targets?: string;
       projects?: string;
     }) => {
-      const firstInit = !(await fileExists(configPath("user")));
+      const firstInit = !(await configExists("user"));
       await ensureScope("user");
       if (firstInit) {
         const mode = resolveInitMode(options);
@@ -229,7 +230,7 @@ program
 
 program
   .command("stop")
-  .description("Stop the Unity watcher if one is registered in ~/.agents/watch.json.")
+  .description("Stop the Unity watcher if one is registered in ~/.agents/unity/watch.json.")
   .action(async () => {
     const state = await getWatcherState();
     if (!state) {
@@ -274,6 +275,34 @@ program
         }
       }
     }
+  });
+
+program
+  .command("migrate")
+  .description("Move Unity metadata from .agents/* into .agents/unity (config, state, locks, logs).")
+  .option("--scope <scope>", "user, project, or all", parseScope, "all")
+  .option("--dry-run", "preview moves without changing files", false)
+  .option("--force", "when legacy and canonical files differ, replace canonical with legacy", false)
+  .option("--remove-legacy", "delete legacy copies after migration (including identical duplicates)", false)
+  .action(async (options: { scope: ScopeInput; dryRun: boolean; force: boolean; removeLegacy: boolean }) => {
+    const results = await migrateLayout(options.scope, process.cwd(), {
+      dryRun: options.dryRun,
+      force: options.force,
+      removeLegacy: options.removeLegacy
+    });
+    const lines = formatMigrateResults(results);
+    if (!lines.length) {
+      logOutput("Nothing to migrate.");
+      return;
+    }
+    for (const line of lines) logOutput(line, "config");
+    const changed = results.some((result) => result.items.some((item) => item.action !== "unchanged"));
+    if (!changed) return;
+    if (options.dryRun) {
+      logOutput("Dry run only. Re-run without --dry-run to apply.");
+      return;
+    }
+    logOutput("Migration complete. Unity now uses .agents/unity for metadata.");
   });
 
 program

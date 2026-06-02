@@ -3,6 +3,9 @@ dist/
 coverage/
 .DS_Store
 *.log
+.agents/unity/
 .agents/state.json
 .agents/config.json
 .agents/sync.lock
+.agents/watch.json
+.agents/logs/

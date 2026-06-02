@@ -149,7 +149,7 @@ Run one background watcher for user scope and all registered projects:
 unity watch --pull
 ```
 
-Unity stores the active watcher in `~/.agents/watch.json`. Starting another `unity watch` replaces the previous watcher, so agents should prefer launching the desired watcher command directly instead of trying to keep multiple watchers alive.
+Unity stores the active watcher in `~/.agents/unity/watch.json` (legacy: `~/.agents/watch.json`). Starting another `unity watch` replaces the previous watcher, so agents should prefer launching the desired watcher command directly instead of trying to keep multiple watchers alive.
 
 The running watcher reloads the project registry when `unity projects add` or `unity projects remove` updates the user config.
 

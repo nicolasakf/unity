@@ -1,11 +1,19 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { lockPath } from "./paths.js";
+import { findScopeLockPath, lockPath } from "./paths.js";
 import type { Scope } from "./types.js";
 
 const STALE_LOCK_MS = 30 * 60 * 1000;
 
 export async function withScopeLock<T>(scope: Scope, cwd: string, task: () => Promise<T>): Promise<T> {
+  const existing = await findScopeLockPath(scope, cwd);
+  if (existing && existing !== lockPath(scope, cwd)) {
+    if (!(await isStaleLockFile(existing))) {
+      throw new Error(`Another Unity operation is already running for ${scope}. Lock file: ${existing}`);
+    }
+    await fs.rm(existing, { force: true });
+  }
+
   const filePath = lockPath(scope, cwd);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const release = await acquireLock(filePath, scope);
@@ -32,7 +40,7 @@ async function acquireLock(filePath: string, scope: Scope): Promise<() => Promis
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
 
-  if (await isStaleLock(filePath)) {
+  if (await isStaleLockFile(filePath)) {
     await fs.rm(filePath, { force: true });
     return acquireLock(filePath, scope);
   }
@@ -40,7 +48,7 @@ async function acquireLock(filePath: string, scope: Scope): Promise<() => Promis
   throw new Error(`Another Unity operation is already running for ${scope}. Lock file: ${filePath}`);
 }
 
-async function isStaleLock(filePath: string): Promise<boolean> {
+export async function isStaleLockFile(filePath: string): Promise<boolean> {
   const pid = await readLockPid(filePath);
   if (pid !== undefined && pid !== process.pid && !isProcessAlive(pid)) return true;
 

@@ -11,8 +11,8 @@ describe("action log", () => {
 
     await ensureScope("user", root);
 
-    await expect(exists(path.join(home, ".agents", "logs"))).resolves.toBe(true);
-    expect(logDir(root)).toBe(path.join(home, ".agents", "logs"));
+    await expect(exists(path.join(home, ".agents", "unity", "logs"))).resolves.toBe(true);
+    expect(logDir(root)).toBe(path.join(home, ".agents", "unity", "logs"));
   });
 
   it("writes and reads daily log entries", async () => {

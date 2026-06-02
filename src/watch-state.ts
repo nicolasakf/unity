@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { readJsonFile, writeJsonFile } from "./json.js";
-import { watchStatePath } from "./paths.js";
+import { watchStatePath, watchStateReadPath } from "./paths.js";
 import type { ScopeInput } from "./types.js";
 
 export type WatchState = {
@@ -24,11 +24,11 @@ export async function claimWatcher(state: Omit<WatchState, "pid" | "startedAt">,
 }
 
 export async function stopExistingWatcher(cwd = process.cwd()): Promise<void> {
-  const filePath = watchStatePath(cwd);
-  const existing = await readJsonFile<WatchState | undefined>(filePath, undefined);
+  const readPath = await watchStateReadPath(cwd);
+  const existing = await readJsonFile<WatchState | undefined>(readPath, undefined);
   if (!existing) return;
   if (!isProcessRunning(existing.pid)) {
-    await fs.rm(filePath, { force: true });
+    await fs.rm(readPath, { force: true });
     return;
   }
 
@@ -45,17 +45,17 @@ export async function stopExistingWatcher(cwd = process.cwd()): Promise<void> {
 }
 
 export async function releaseWatcher(cwd = process.cwd()): Promise<void> {
-  const filePath = watchStatePath(cwd);
-  const existing = await readJsonFile<WatchState | undefined>(filePath, undefined);
-  if (existing?.pid === process.pid) await fs.rm(filePath, { force: true });
+  const readPath = await watchStateReadPath(cwd);
+  const existing = await readJsonFile<WatchState | undefined>(readPath, undefined);
+  if (existing?.pid === process.pid) await fs.rm(readPath, { force: true });
 }
 
 export async function getWatcherState(cwd = process.cwd()): Promise<WatchState | undefined> {
-  const filePath = watchStatePath(cwd);
-  const existing = await readJsonFile<WatchState | undefined>(filePath, undefined);
+  const readPath = await watchStateReadPath(cwd);
+  const existing = await readJsonFile<WatchState | undefined>(readPath, undefined);
   if (!existing) return undefined;
   if (isProcessRunning(existing.pid)) return existing;
-  await fs.rm(filePath, { force: true });
+  await fs.rm(readPath, { force: true });
   return undefined;
 }
 

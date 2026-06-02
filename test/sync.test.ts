@@ -146,7 +146,7 @@ describe("sync", () => {
 
     expect(result.copied).toBe(1);
     await expect(exists(path.join(root, "CLAUDE.md"))).resolves.toBe(false);
-    await expect(exists(path.join(root, ".agents", "state.json"))).resolves.toBe(false);
+    await expect(exists(path.join(root, ".agents", "unity", "state.json"))).resolves.toBe(false);
   });
 
   it("removes managed target skills when source skills are deleted", async () => {
@@ -201,7 +201,7 @@ describe("sync", () => {
 
     await expect(expectedCopiedTargets("project", root)).resolves.toBe(result.copied);
     await expect(exists(path.join(root, ".claude", "skills", "preview-skill"))).resolves.toBe(false);
-    await expect(exists(path.join(root, ".agents", "state.json"))).resolves.toBe(false);
+    await expect(exists(path.join(root, ".agents", "unity", "state.json"))).resolves.toBe(false);
   });
 
   it("prunes only Unity-managed skills from disabled targets", async () => {

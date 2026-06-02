@@ -4,8 +4,21 @@ Unity stores config and sync state separately for user and project scopes.
 
 | Scope | Config | State | Skills source | Rules source |
 | --- | --- | --- | --- | --- |
-| User | `~/.agents/config.json` | `~/.agents/state.json` | `~/.agents/skills` | `~/.agents/rules` |
-| Project | `<repo>/.agents/config.json` | `<repo>/.agents/state.json` | `<repo>/.agents/skills` | `<repo>/.agents/rules` |
+| User | `~/.agents/unity/config.json` | `~/.agents/unity/state.json` | `~/.agents/skills` | `~/.agents/rules` |
+| Project | `<repo>/.agents/unity/config.json` | `<repo>/.agents/unity/state.json` | `<repo>/.agents/skills` | `<repo>/.agents/rules` |
+
+Unity metadata (config, state, locks, watcher state, and logs) lives under `.agents/unity` so it does not collide with other tools that use `.agents`. If you already have `config.json`, `state.json`, `sync.lock`, `watch.json`, or `logs/` directly under `.agents`, Unity still reads them and prints a one-time warning; saves go to `.agents/unity`. If both layouts exist, Unity prefers the file under `.agents/unity` and warns about the duplicate.
+
+To move legacy files into `.agents/unity` in one step:
+
+```bash
+unity migrate --scope all
+unity migrate --dry-run
+unity migrate --remove-legacy
+unity migrate --force
+```
+
+`migrate` moves each legacy file when the canonical copy is missing. Log files under `.agents/logs` are merged into `.agents/unity/logs`. Identical duplicates can be deleted with `--remove-legacy`. If legacy and canonical differ, use `--force` to replace the canonical file with the legacy copy (then the legacy file is removed). Active `sync.lock` files are skipped until the other Unity process finishes.
 
 `state.json` is a manifest of Unity-managed target files. It is used to avoid overwriting files that were not created by Unity. Codex and Orion read the Unity skills source path directly (under `.agents/skills`), so those skill directories are skipped during copy and prune operations. Rule files are tracked separately in the same manifest.
 
@@ -26,7 +39,7 @@ If `--non-interactive` is used without targets and without `UNITY_INIT_TARGETS`,
 
 `sync.lock` is created while Unity mutates a scope. If another Unity process sees the lock, it stops instead of racing the active operation. Locks older than 30 minutes are treated as stale and replaced.
 
-`watch.json` is stored in the user config directory and records the active Unity watcher PID and flags. Starting a new watcher terminates the previous registered watcher before claiming the file.
+`watch.json` is stored in `~/.agents/unity` and records the active Unity watcher PID and flags. Starting a new watcher terminates the previous registered watcher before claiming the file.
 
 ## Config shape
 

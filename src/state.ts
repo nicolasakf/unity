@@ -1,4 +1,4 @@
-import { statePath } from "./paths.js";
+import { statePath, stateReadPath } from "./paths.js";
 import type { Scope, UnityState } from "./types.js";
 import { readJsonFile, writeJsonFile } from "./json.js";
 
@@ -7,7 +7,7 @@ export function emptyState(): UnityState {
 }
 
 export async function loadState(scope: Scope, cwd = process.cwd()): Promise<UnityState> {
-  const state = await readJsonFile<UnityState>(statePath(scope, cwd), emptyState());
+  const state = await readJsonFile<UnityState>(await stateReadPath(scope, cwd), emptyState());
   return {
     version: 1,
     targets: Object.fromEntries(

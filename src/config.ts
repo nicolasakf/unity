@@ -1,7 +1,16 @@
 import fs from "node:fs/promises";
 import { defaultConfigTargets } from "./agents.js";
 import { ensureLogDir } from "./action-log.js";
-import { configPath, expandPath, findProjectRoot, rulesSourceDir, sourceDir } from "./paths.js";
+import {
+  configExists,
+  configPath,
+  configReadPath,
+  expandPath,
+  findProjectRoot,
+  rulesSourceDir,
+  sourceDir,
+  unityDataDir
+} from "./paths.js";
 import type { Scope, TargetConfig, UnityConfig } from "./types.js";
 import { readJsonFile, writeJsonFile } from "./json.js";
 
@@ -14,7 +23,7 @@ export function defaultConfig(): UnityConfig {
 }
 
 /**
- * When project scope has no config file yet (no `.agents/config.json`), avoid treating
+ * When project scope has no config file yet (no `.agents/unity/config.json`), avoid treating
  * that as "all built-in targets enabled" — there is no project-level Unity setup.
  */
 function projectConfigFallback(): UnityConfig {
@@ -26,19 +35,10 @@ function projectConfigFallback(): UnityConfig {
   return { version: 1, targets, projects: [] };
 }
 
-async function configFileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function loadConfig(scope: Scope, cwd = process.cwd()): Promise<UnityConfig> {
-  const cfgPath = configPath(scope, cwd);
+  const cfgPath = await configReadPath(scope, cwd);
   const fallback =
-    scope === "project" && !(await configFileExists(cfgPath)) ? projectConfigFallback() : defaultConfig();
+    scope === "project" && !(await configExists(scope, cwd)) ? projectConfigFallback() : defaultConfig();
   const loaded = await readJsonFile<UnityConfig>(cfgPath, fallback);
   return normalizeConfig(loaded);
 }
@@ -50,9 +50,9 @@ export async function saveConfig(scope: Scope, config: UnityConfig, cwd = proces
 export async function ensureScope(scope: Scope, cwd = process.cwd()): Promise<UnityConfig> {
   await fs.mkdir(sourceDir(scope, cwd), { recursive: true });
   await fs.mkdir(rulesSourceDir(scope, cwd), { recursive: true });
+  await fs.mkdir(unityDataDir(scope, cwd), { recursive: true });
   if (scope === "user") await ensureLogDir(cwd);
-  const cfgPath = configPath(scope, cwd);
-  const configExisted = await configFileExists(cfgPath);
+  const configExisted = await configExists(scope, cwd);
   const config = await loadConfig(scope, cwd);
   if (scope === "project" && !configExisted) {
     copyTargetSelectionFromUserToProject(await loadConfig("user", cwd), config);
@@ -62,7 +62,7 @@ export async function ensureScope(scope: Scope, cwd = process.cwd()): Promise<Un
 }
 
 /**
- * Use the user's target selection (`enabled.user` in ~/.agents/config.json) for both scopes
+ * Use the user's target selection (`enabled.user` in ~/.agents/unity/config.json) for both scopes
  * in a new repo config so project-scope sync mirrors the targets chosen during init / user config.
  */
 export function copyTargetSelectionFromUserToProject(userConfig: UnityConfig, projectConfig: UnityConfig): void {

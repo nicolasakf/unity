@@ -1,7 +1,7 @@
 import chokidar from "chokidar";
 import path from "node:path";
 import { enabledTargets, listRegisteredProjects, loadConfig } from "./config.js";
-import { configPath, isPathWithin, pathsEqual, resolveTargetPath, rulesSourceDir, sourceDir } from "./paths.js";
+import { configWatchPaths, isPathWithin, pathsEqual, resolveTargetPath, rulesSourceDir, sourceDir } from "./paths.js";
 import { pullScope, pushScope } from "./sync.js";
 import type { Scope, TargetConfig, UnityMessage } from "./types.js";
 
@@ -37,10 +37,10 @@ export async function watchGlobal(
   onMessage: (message: UnityMessage) => void,
   options: WatchOptions = {}
 ): Promise<void> {
-  const userConfigPath = configPath("user", cwd);
-  await watchTargetSet(await globalTargets(cwd), [userConfigPath], onMessage, options, {
+  const userConfigPaths = await configWatchPaths("user", cwd);
+  await watchTargetSet(await globalTargets(cwd), userConfigPaths, onMessage, options, {
     reloadTargets: () => globalTargets(cwd),
-    reloadPath: userConfigPath
+    reloadPaths: userConfigPaths
   });
 }
 
@@ -50,7 +50,7 @@ async function watchTargetSet(
   onMessage: (message: UnityMessage) => void,
   options: WatchOptions,
   dynamic?: {
-    reloadPath: string;
+    reloadPaths: string[];
     reloadTargets: () => Promise<WatchTarget[]>;
   }
 ): Promise<void> {
@@ -63,7 +63,7 @@ async function watchTargetSet(
   const changedPaths = new Set<string>();
   const run = (eventPath?: string, deleted = false) => {
     if (eventPath) changedPaths.add(eventPath);
-    if (dynamic && eventPath && pathsEqual(eventPath, dynamic.reloadPath)) {
+    if (dynamic && eventPath && dynamic.reloadPaths.some((reloadPath) => pathsEqual(eventPath, reloadPath))) {
       reloadRequested = true;
     }
     if (deleted && eventPath) {

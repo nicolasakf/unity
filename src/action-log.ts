@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { logDir } from "./paths.js";
+import { logDir, resolveLogDirPath } from "./paths.js";
 import type { MessageLevel } from "./types.js";
 
 export type LogCategory = "command" | "sync" | "watch" | "config" | "env" | "watcher";
@@ -18,6 +18,10 @@ export async function ensureLogDir(cwd = process.cwd()): Promise<string> {
   const dir = logDir(cwd);
   await fs.mkdir(dir, { recursive: true });
   return dir;
+}
+
+async function activeLogDir(cwd = process.cwd()): Promise<string> {
+  return (await resolveLogDirPath(cwd)).path;
 }
 
 let activeLogDate = formatDate();
@@ -46,7 +50,7 @@ export async function appendLogEntry(
 }
 
 export async function listLogFiles(cwd = process.cwd()): Promise<string[]> {
-  const dir = logDir(cwd);
+  const dir = await activeLogDir(cwd);
   try {
     const entries = await fs.readdir(dir);
     return entries
